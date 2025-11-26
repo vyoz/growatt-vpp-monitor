@@ -6,7 +6,7 @@
   },
   "interval_seconds": 10,
   "output": {
-    "mode": "log",              // options:  "log" | "mqtt" | "both"
+    "mode": "log",             
     "log_file": "growatt_log.csv",
     "mqtt": {
       "enabled": false,

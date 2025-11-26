@@ -2,23 +2,25 @@ import os
 import json
 import time
 import csv
+import argparse
 from datetime import datetime
 
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusIOException, ConnectionException
 
-# -----------------------
-# 默认配置
-# -----------------------
+
+# ---------------------------------------------------------------------
+# Default configuration (used if no config file is found)
+# ---------------------------------------------------------------------
 DEFAULT_CONFIG = {
     "modbus": {
-        "ip": "192.168.9.242",
+        "ip": "192.168.1.50",
         "port": 502,
         "unit_id": 1
     },
     "interval_seconds": 30,
     "output": {
-        "mode": "log",  # "log" | "mqtt" | "both"
+        "mode": "log",    # options: log | mqtt | both
         "log_file": "growatt_log.csv",
         "mqtt": {
             "enabled": False,
@@ -31,32 +33,20 @@ DEFAULT_CONFIG = {
     }
 }
 
+# Where to search config.json automatically
+CONFIG_SEARCH_PATHS = [
+    "./config.json",
+    "/etc/growatt-monitor/config.json"
+]
+
 RETRY_TIMEOUT_SEC = 30
 RETRY_DELAY_SEC = 1
 
-# -----------------------
-# 配置加载
-# -----------------------
-def load_config(path="config.json"):
-    cfg = DEFAULT_CONFIG.copy()
 
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                user_cfg = json.load(f)
-            # 简单递归合并
-            cfg = deep_merge_dict(cfg, user_cfg)
-            print(f"加载配置文件 {path} 成功")
-        except Exception as e:
-            print(f"加载配置文件 {path} 失败，使用默认配置: {e}")
-    else:
-        print(f"未找到 {path}，使用默认配置")
-
-    return cfg
-
-
+# ---------------------------------------------------------------------
+# Merge two dictionaries (recursive)
+# ---------------------------------------------------------------------
 def deep_merge_dict(base, override):
-    """简易递归合并 dict：override 覆盖 base"""
     result = dict(base)
     for k, v in override.items():
         if isinstance(v, dict) and isinstance(result.get(k), dict):
@@ -66,15 +56,44 @@ def deep_merge_dict(base, override):
     return result
 
 
-# -----------------------
-# Modbus 读函数（带重试）
-# -----------------------
+# ---------------------------------------------------------------------
+# Load configuration (command-line override available)
+# ---------------------------------------------------------------------
+def load_config_from_paths(cmd_path=None):
+    cfg = DEFAULT_CONFIG.copy()
+
+    # 1) Highest priority: command-line file
+    if cmd_path:
+        if os.path.exists(cmd_path):
+            with open(cmd_path, "r", encoding="utf-8") as f:
+                user_cfg = json.load(f)
+            cfg = deep_merge_dict(cfg, user_cfg)
+            print(f"✔ Using config file: {cmd_path}")
+            return cfg
+        else:
+            print(f"⚠ Config file not found: {cmd_path}, continue searching...")
+
+    # 2) Search predefined locations
+    for path in CONFIG_SEARCH_PATHS:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    user_cfg = json.load(f)
+                cfg = deep_merge_dict(cfg, user_cfg)
+                print(f"✔ Using config file: {path}")
+                return cfg
+            except Exception as e:
+                print(f"⚠ Failed to load {path}: {e}")
+
+    # 3) Use defaults
+    print("⚠ No config file found. Using default configuration.")
+    return cfg
+
+
+# ---------------------------------------------------------------------
+# Modbus reading with retry mechanism (up to 30 seconds)
+# ---------------------------------------------------------------------
 def robust_read_input_registers(client, addr, count, unit_id):
-    """
-    可靠读取 Input Registers:
-    - 失败时等待一小会儿再重试
-    - 累计超过 RETRY_TIMEOUT_SEC 仍失败则返回 None
-    """
     start = time.time()
     while True:
         if not client.connected:
@@ -90,6 +109,7 @@ def robust_read_input_registers(client, addr, count, unit_id):
         except (ConnectionException, OSError, Exception):
             pass
 
+        # Timeout exceeded
         if time.time() - start > RETRY_TIMEOUT_SEC:
             return None
 
@@ -105,24 +125,22 @@ def read_input_u32(client, addr, unit_id):
 
 
 def read_input_s32(client, addr, unit_id):
-    val = read_input_u32(client, addr, unit_id)
-    if val is None:
+    v = read_input_u32(client, addr, unit_id)
+    if v is None:
         return None
-    if val & 0x80000000:
-        val -= 0x100000000
-    return val
+    if v & 0x80000000:
+        v -= 0x100000000
+    return v
 
 
 def read_input_u16(client, addr, unit_id):
     regs = robust_read_input_registers(client, addr, 1, unit_id)
-    if regs is None:
-        return None
-    return regs[0]
+    return None if regs is None else regs[0]
 
 
-# -----------------------
-# 日志写入
-# -----------------------
+# ---------------------------------------------------------------------
+# Logging utilities
+# ---------------------------------------------------------------------
 LOG_HEADER = [
     "timestamp",
     "pv_w",
@@ -137,13 +155,11 @@ LOG_HEADER = [
 
 
 def ensure_log_header(path):
-    exists = os.path.exists(path)
-    if not exists or os.path.getsize(path) == 0:
-        # 创建并写 header
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(LOG_HEADER)
-        print(f"日志文件 {path} 已创建并写入表头")
+        print(f"✔ Created log file with header: {path}")
 
 
 def append_log_row(path, row):
@@ -152,9 +168,9 @@ def append_log_row(path, row):
         writer.writerow(row)
 
 
-# -----------------------
-# MQTT 相关（可选）
-# -----------------------
+# ---------------------------------------------------------------------
+# MQTT support
+# ---------------------------------------------------------------------
 class MQTTClientWrapper:
     def __init__(self, cfg):
         self.enabled = cfg.get("enabled", False)
@@ -166,22 +182,22 @@ class MQTTClientWrapper:
         self.client = None
         self.available = False
 
-        if self.enabled:
-            try:
-                import paho.mqtt.client as mqtt
-                self.client = mqtt.Client()
-                if self.username is not None:
-                    self.client.username_pw_set(self.username, self.password or "")
-                self.client.connect(self.host, self.port, keepalive=60)
-                self.available = True
-                print(f"MQTT 已启用，连接到 {self.host}:{self.port}")
-            except ImportError:
-                print("未安装 paho-mqtt，MQTT 功能不可用（pip install paho-mqtt）。")
-            except Exception as e:
-                print(f"MQTT 连接失败: {e}")
+        if not self.enabled:
+            return
+
+        try:
+            import paho.mqtt.client as mqtt
+            self.client = mqtt.Client()
+            if self.username:
+                self.client.username_pw_set(self.username, self.password or "")
+            self.client.connect(self.host, self.port, keepalive=60)
+            self.available = True
+            print(f"✔ MQTT connected: {self.host}:{self.port}")
+        except Exception as e:
+            print(f"⚠ MQTT init failed: {e}")
 
     def publish_metrics(self, metrics: dict):
-        if not (self.enabled and self.available and self.client):
+        if not (self.enabled and self.available):
             return
 
         try:
@@ -190,126 +206,103 @@ class MQTTClientWrapper:
                 payload = "NA" if value is None else str(value)
                 self.client.publish(topic, payload, qos=0, retain=False)
         except Exception as e:
-            print(f"MQTT 发布失败: {e}")
+            print(f"⚠ MQTT publish failed: {e}")
 
 
-# -----------------------
-# 主循环
-# -----------------------
+# ---------------------------------------------------------------------
+# Main monitoring loop
+# ---------------------------------------------------------------------
 def main():
-    cfg = load_config("config.json")
+    # Command-line argument parsing
+    parser = argparse.ArgumentParser(description="Growatt SPH Monitor")
+    parser.add_argument("-c", "--config", help="Specify config file path", default=None)
+    args = parser.parse_args()
+
+    cfg = load_config_from_paths(args.config)
 
     ip = cfg["modbus"]["ip"]
     port = cfg["modbus"]["port"]
     unit_id = cfg["modbus"]["unit_id"]
     interval = cfg.get("interval_seconds", 30)
 
-    output_mode = cfg["output"].get("mode", "log").lower()
+    output_mode = cfg["output"].get("mode", "log")
     log_path = cfg["output"].get("log_file", "growatt_log.csv")
     mqtt_cfg = cfg["output"].get("mqtt", {})
+
     mqtt_client = MQTTClientWrapper(mqtt_cfg)
 
     if output_mode in ("log", "both"):
         ensure_log_header(log_path)
 
     client = ModbusTcpClient(ip, port=port)
-    if not client.connect():
-        print(f"首次连接 Modbus 失败：{ip}:{port}，但循环中会继续尝试重连。")
 
-    print(f"开始循环监控，每 {interval} 秒采集一次... (Ctrl+C 结束)")
+    print(f"Growatt Monitor started. Sampling every {interval} seconds...")
+    print(f"Modbus: {ip}:{port}, UnitID={unit_id}")
+    print(f"Output mode: {output_mode}")
+    print("----------------------------------------------")
 
     try:
         while True:
-            loop_start = time.time()
-            timestamp = datetime.now().isoformat(timespec="seconds")
+            ts = datetime.now().isoformat(timespec="seconds")
 
-            # 1) PV
+            # PV
             pv_raw = read_input_u32(client, 1, unit_id)
             pv = pv_raw / 10.0 if pv_raw is not None else None
 
-            # 2) grid
+            # Grid
             grid_raw = read_input_s32(client, 1029, unit_id)
             grid = grid_raw / 10.0 if grid_raw is not None else None
 
-            # 3) load
+            # Load
             load_raw = read_input_s32(client, 1037, unit_id)
             load = load_raw / 10.0 if load_raw is not None else None
 
-            # 4) battery power (via power balance)
+            # Battery (energy balance)
             if pv is not None and load is not None and grid is not None:
-                batt_net = pv - load + grid
-                if batt_net >= 0:
-                    batt_charge = batt_net
-                    batt_discharge = 0.0
-                else:
-                    batt_charge = 0.0
-                    batt_discharge = -batt_net
+                net = pv - load + grid
+                charge = max(net, 0)
+                discharge = max(-net, 0)
             else:
-                batt_net = batt_charge = batt_discharge = None
+                net = charge = discharge = None
 
-            # 5) SOC (1014) & BMS SOC (1086)
+            # SOC
             soc_inv = read_input_u16(client, 1014, unit_id)
             soc_bms = read_input_u16(client, 1086, unit_id)
 
-            # --- 打印一行状态 ---
-            def fmt(v, unit="W"):
-                if v is None:
-                    return "NA"
-                if unit == "W":
-                    return f"{v:.0f}W"
-                return str(v)
-
-            line = (
-                f"[{timestamp}] "
-                f"PV={fmt(pv)} "
-                f"Load={fmt(load)} "
-                f"Grid={fmt(grid)} "
-                f"BattChg={fmt(batt_charge)} "
-                f"BattDis={fmt(batt_discharge)} "
-                f"SOC(inv/BMS)={soc_inv if soc_inv is not None else 'NA'}%"
-                f"/{soc_bms if soc_bms is not None else 'NA'}%"
+            # Print summary line
+            print(
+                f"[{ts}] PV={pv}W  Load={load}W  Grid={grid}W  "
+                f"BattChg={charge}W  BattDis={discharge}W  "
+                f"SOC(inv/BMS)= {soc_inv}/{soc_bms}"
             )
-            print(line)
 
-            # --- 日志 ---
+            # Log to CSV
             if output_mode in ("log", "both"):
                 row = [
-                    timestamp,
-                    f"{pv:.1f}" if pv is not None else "",
-                    f"{load:.1f}" if load is not None else "",
-                    f"{grid:.1f}" if grid is not None else "",
-                    f"{batt_charge:.1f}" if batt_charge is not None else "",
-                    f"{batt_discharge:.1f}" if batt_discharge is not None else "",
-                    f"{batt_net:.1f}" if batt_net is not None else "",
-                    soc_inv if soc_inv is not None else "",
-                    soc_bms if soc_bms is not None else "",
+                    ts, pv, load, grid,
+                    charge, discharge, net,
+                    soc_inv, soc_bms
                 ]
-                try:
-                    append_log_row(log_path, row)
-                except Exception as e:
-                    print(f"写日志失败: {e}")
+                append_log_row(log_path, row)
 
-            # --- MQTT ---
+            # Publish MQTT
             if output_mode in ("mqtt", "both"):
                 metrics = {
                     "pv_w": pv,
                     "load_w": load,
                     "grid_w": grid,
-                    "battery_charge_w": batt_charge,
-                    "battery_discharge_w": batt_discharge,
-                    "battery_net_w": batt_net,
+                    "battery_charge_w": charge,
+                    "battery_discharge_w": discharge,
+                    "battery_net_w": net,
                     "soc_inv_percent": soc_inv,
-                    "soc_bms_percent": soc_bms,
+                    "soc_bms_percent": soc_bms
                 }
                 mqtt_client.publish_metrics(metrics)
 
-            # --- 控制采样周期 ---
-            elapsed = time.time() - loop_start
-            sleep_time = max(0, interval - elapsed)
-            time.sleep(sleep_time)
+            time.sleep(interval)
 
     except KeyboardInterrupt:
-        print("\n用户中断，退出监控。")
+        print("\nUser interrupted. Exiting...")
     finally:
         client.close()
 

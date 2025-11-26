@@ -15,8 +15,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Configure:
-  Please copy config.json.sample to config.json and update the IP address of your inverter in the configuration file.
+Configuration:
+  - Please copy config.json.sample to config.json and update the IP address of your inverter in the configuration file.
+  - The log options: log, mqtt, both 
 
 Run reader:
 ```
