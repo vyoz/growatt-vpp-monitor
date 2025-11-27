@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { Sankey, Rectangle, Layer } from 'recharts';
+import * as d3 from 'd3';
 
 // ============================================================
 // 配置 - 修改这里的 API 地址
@@ -111,9 +111,13 @@ const DateRangePicker = ({ startDate, endDate, onStartDateChange, onEndDateChang
 
 
 // ============================================================
-// Sankey 图组件
+// D3 Sankey 图组件
 // ============================================================
 const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, instanceId = "default" }) => {
+  const svgRef = useRef(null);
+  const containerRef = useRef(null);
+  const [containerWidth, setContainerWidth] = useState(700);
+
   const { 
     solar = 0, 
     battery_discharge = 0, 
@@ -131,15 +135,42 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
   const totalInput = solar + batteryOut + grid_import;
   const totalOutput = load + batteryIn + grid_export;
 
-  // 对于历史统计数据，使用比例分配而不是优先级分配
-  // 这样更准确地反映实际能量流向
-  
+  // 节点颜色
+  const nodeColors = {
+    "Solar": "#FCD34D",
+    "Battery Out": "#22D3EE",
+    "Grid In": "#60A5FA",
+    "Battery In": "#22D3EE",
+    "Load": "#A78BFA",
+    "Grid Out": "#34D399",
+  };
+
+  // 节点原始值
+  const nodeValues = {
+    "Solar": solar,
+    "Battery Out": batteryOut,
+    "Grid In": grid_import,
+    "Battery In": batteryIn,
+    "Load": load,
+    "Grid Out": grid_export,
+  };
+
+  // 节点百分比
+  const nodePercentages = {
+    "Solar": totalInput > 0 ? (solar / totalInput * 100).toFixed(1) : "0.0",
+    "Battery Out": totalInput > 0 ? (batteryOut / totalInput * 100).toFixed(1) : "0.0",
+    "Grid In": totalInput > 0 ? (grid_import / totalInput * 100).toFixed(1) : "0.0",
+    "Battery In": totalOutput > 0 ? (batteryIn / totalOutput * 100).toFixed(1) : "0.0",
+    "Load": totalOutput > 0 ? (load / totalOutput * 100).toFixed(1) : "0.0",
+    "Grid Out": totalOutput > 0 ? (grid_export / totalOutput * 100).toFixed(1) : "0.0",
+  };
+
+  // 计算流向
   let solarToLoad, solarToBatteryIn, solarToGridOut;
-  let batteryOutToLoad;
+  let batteryOutToLoad, batteryOutToBatteryIn, batteryOutToGridOut;
   let gridInToLoad, gridInToBatteryIn;
 
   if (totalInput > 0.001 && totalOutput > 0.001) {
-    // 按比例分配：每个输入源按输出的比例分配
     const loadRatio = load / totalOutput;
     const batteryInRatio = batteryIn / totalOutput;
     const gridOutRatio = grid_export / totalOutput;
@@ -149,80 +180,242 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
     solarToGridOut = solar * gridOutRatio;
 
     batteryOutToLoad = batteryOut * loadRatio;
-    // batteryOut 一般不会去充电或卖电，但如果有剩余也按比例
-    
+    batteryOutToBatteryIn = batteryOut * batteryInRatio;
+    batteryOutToGridOut = batteryOut * gridOutRatio;
+
     gridInToLoad = grid_import * loadRatio;
     gridInToBatteryIn = grid_import * batteryInRatio;
   } else {
-    // Fallback: 原来的优先级逻辑（用于实时数据）
-    solarToLoad = Math.min(solar, load);
-    solarToBatteryIn = Math.min(Math.max(0, solar - solarToLoad), batteryIn);
-    solarToGridOut = Math.max(0, solar - solarToLoad - solarToBatteryIn);
-
-    const remainingLoadAfterSolar = Math.max(0, load - solarToLoad);
-    batteryOutToLoad = Math.min(batteryOut, remainingLoadAfterSolar);
-
-    const remainingLoadAfterBattery = Math.max(0, remainingLoadAfterSolar - batteryOutToLoad);
-    gridInToLoad = Math.min(grid_import, remainingLoadAfterBattery);
-    gridInToBatteryIn = Math.max(0, grid_import - gridInToLoad);
+    solarToLoad = solarToBatteryIn = solarToGridOut = 0;
+    batteryOutToLoad = batteryOutToBatteryIn = batteryOutToGridOut = 0;
+    gridInToLoad = gridInToBatteryIn = 0;
   }
 
-  // 定义所有可能的节点（按左右顺序：输入源在前，输出在后）
-  const allNodes = [
-    { name: "Solar", side: "input" },
-    { name: "Battery Out", side: "input" },
-    { name: "Grid In", side: "input" },
-    { name: "Battery In", side: "output" },
-    { name: "Load", side: "output" },
-    { name: "Grid Out", side: "output" },
-  ];
+  // 监听容器宽度变化
+  useEffect(() => {
+    if (containerRef.current) {
+      const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+          setContainerWidth(entry.contentRect.width || 700);
+        }
+      });
+      resizeObserver.observe(containerRef.current);
+      return () => resizeObserver.disconnect();
+    }
+  }, []);
 
-  const nodeColors = {
-    Solar: "#FCD34D",
-    "Battery Out": "#22D3EE",
-    "Grid In": "#60A5FA",
-    "Battery In": "#22D3EE",
-    Load: "#A78BFA",
-    "Grid Out": "#34D399",
-  };
+  // D3 绘制
+  useEffect(() => {
+    if (!svgRef.current) return;
 
-  // 构建所有可能的连接（使用节点名称，稍后转换为索引）
-  const allLinksDef = [
-    { sourceName: "Solar", targetName: "Load", value: solarToLoad },
-    { sourceName: "Solar", targetName: "Battery In", value: solarToBatteryIn },
-    { sourceName: "Solar", targetName: "Grid Out", value: solarToGridOut },
-    { sourceName: "Battery Out", targetName: "Load", value: batteryOutToLoad },
-    { sourceName: "Grid In", targetName: "Load", value: gridInToLoad },
-    { sourceName: "Grid In", targetName: "Battery In", value: gridInToBatteryIn },
-  ];
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
 
-  // 过滤有效的连接
-  const validLinks = allLinksDef.filter(link => link.value > 0.001);
+    const margin = { top: 20, right: 120, bottom: 20, left: 120 };
+    const width = containerWidth - margin.left - margin.right;
+    const innerHeight = height - margin.top - margin.bottom;
 
-  // 找出所有被使用的节点名称
-  const usedNodeNames = new Set();
-  validLinks.forEach(link => {
-    usedNodeNames.add(link.sourceName);
-    usedNodeNames.add(link.targetName);
-  });
+    const g = svg
+      .attr("width", containerWidth)
+      .attr("height", height)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
 
-  // 按原始顺序过滤出被使用的节点
-  const nodes = allNodes.filter(n => usedNodeNames.has(n.name));
+    // 定义节点：左边3个输入，右边3个输出
+    const nodeWidth = 100;
+    const nodeMinHeight = 60;
+    
+    // 计算左侧节点高度（按值比例，但有最小高度）
+    const leftNodes = ["Solar", "Battery Out", "Grid In"];
+    const rightNodes = ["Battery In", "Load", "Grid Out"];
+    
+    const leftTotal = Math.max(totalInput, 0.001);
+    const rightTotal = Math.max(totalOutput, 0.001);
+    
+    const availableHeight = innerHeight - 40; // 留一些间距
 
-  // 创建节点名称到索引的映射
-  const nodeIndexMap = {};
-  nodes.forEach((n, i) => {
-    nodeIndexMap[n.name] = i;
-  });
+    // 计算节点位置和大小
+    const nodeData = [];
+    
+    // 左侧节点
+    let leftY = 0;
+    leftNodes.forEach((name, i) => {
+      const value = nodeValues[name];
+      const ratio = leftTotal > 0 ? value / leftTotal : 0;
+      const h = Math.max(ratio * availableHeight * 0.8, nodeMinHeight);
+      nodeData.push({
+        name,
+        x: 0,
+        y: leftY,
+        width: nodeWidth,
+        height: h,
+        value,
+        side: "left",
+        color: nodeColors[name],
+        percentage: nodePercentages[name],
+      });
+      leftY += h + 15;
+    });
 
-  // 转换连接的source/target为新的索引
-  const links = validLinks.map(link => ({
-    source: nodeIndexMap[link.sourceName],
-    target: nodeIndexMap[link.targetName],
-    value: link.value,
-  }));
+    // 右侧节点
+    let rightY = 0;
+    rightNodes.forEach((name, i) => {
+      const value = nodeValues[name];
+      const ratio = rightTotal > 0 ? value / rightTotal : 0;
+      const h = Math.max(ratio * availableHeight * 0.8, nodeMinHeight);
+      nodeData.push({
+        name,
+        x: width - nodeWidth,
+        y: rightY,
+        width: nodeWidth,
+        height: h,
+        value,
+        side: "right",
+        color: nodeColors[name],
+        percentage: nodePercentages[name],
+      });
+      rightY += h + 15;
+    });
 
-  if (links.length === 0) {
+    // 创建节点名到数据的映射
+    const nodeMap = {};
+    nodeData.forEach(n => { nodeMap[n.name] = n; });
+
+    // 定义连接
+    const linkData = [
+      { source: "Solar", target: "Load", value: solarToLoad },
+      { source: "Solar", target: "Battery In", value: solarToBatteryIn },
+      { source: "Solar", target: "Grid Out", value: solarToGridOut },
+      { source: "Battery Out", target: "Load", value: batteryOutToLoad },
+      { source: "Battery Out", target: "Battery In", value: batteryOutToBatteryIn },
+      { source: "Battery Out", target: "Grid Out", value: batteryOutToGridOut },
+      { source: "Grid In", target: "Load", value: gridInToLoad },
+      { source: "Grid In", target: "Battery In", value: gridInToBatteryIn },
+    ].filter(l => l.value > 0.001);
+
+    // 计算每个节点的流入/流出偏移
+    const nodeSourceOffset = {};
+    const nodeTargetOffset = {};
+    nodeData.forEach(n => {
+      nodeSourceOffset[n.name] = 0;
+      nodeTargetOffset[n.name] = 0;
+    });
+
+    // 计算每个源节点的总流出值，用于计算连接线宽度比例
+    const sourceFlowTotals = {};
+    const targetFlowTotals = {};
+    linkData.forEach(link => {
+      sourceFlowTotals[link.source] = (sourceFlowTotals[link.source] || 0) + link.value;
+      targetFlowTotals[link.target] = (targetFlowTotals[link.target] || 0) + link.value;
+    });
+
+    // 绘制渐变定义
+    const defs = g.append("defs");
+    
+    linkData.forEach((link, i) => {
+      const sourceNode = nodeMap[link.source];
+      const gradientId = `gradient-${instanceId}-${i}`;
+      
+      const gradient = defs.append("linearGradient")
+        .attr("id", gradientId)
+        .attr("x1", "0%")
+        .attr("x2", "100%");
+      
+      gradient.append("stop")
+        .attr("offset", "0%")
+        .attr("stop-color", sourceNode.color)
+        .attr("stop-opacity", 0.8);
+      
+      gradient.append("stop")
+        .attr("offset", "100%")
+        .attr("stop-color", sourceNode.color)
+        .attr("stop-opacity", 0.3);
+    });
+
+    // 计算并绘制连接
+    linkData.forEach((link, i) => {
+      const sourceNode = nodeMap[link.source];
+      const targetNode = nodeMap[link.target];
+      
+      // 计算link的粗细：按照源节点高度的比例分配
+      const sourceTotal = sourceFlowTotals[link.source] || link.value;
+      const linkRatio = link.value / sourceTotal;
+      // 连接线宽度 = 节点可用高度 * 该连接占源节点流出的比例
+      const usableHeight = sourceNode.height - 10; // 留一点边距
+      const linkWidth = Math.max(2, linkRatio * usableHeight);
+      
+      // 计算起点和终点
+      const x0 = sourceNode.x + sourceNode.width;
+      const y0 = sourceNode.y + nodeSourceOffset[link.source] + linkWidth / 2 + 5;
+      const x1 = targetNode.x;
+      const y1 = targetNode.y + nodeTargetOffset[link.target] + linkWidth / 2 + 5;
+      
+      // 更新偏移
+      nodeSourceOffset[link.source] += linkWidth;
+      nodeTargetOffset[link.target] += linkWidth;
+
+      // 绘制贝塞尔曲线
+      const curvature = 0.5;
+      const xi = d3.interpolateNumber(x0, x1);
+      const x2 = xi(curvature);
+      const x3 = xi(1 - curvature);
+
+      g.append("path")
+        .attr("d", `M${x0},${y0} C${x2},${y0} ${x3},${y1} ${x1},${y1}`)
+        .attr("fill", "none")
+        .attr("stroke", `url(#gradient-${instanceId}-${i})`)
+        .attr("stroke-width", linkWidth)
+        .attr("opacity", 0.9);
+    });
+
+    // 绘制节点
+    nodeData.forEach(node => {
+      const nodeG = g.append("g").attr("transform", `translate(${node.x},${node.y})`);
+      
+      // 节点矩形
+      nodeG.append("rect")
+        .attr("width", node.width)
+        .attr("height", node.height)
+        .attr("rx", 6)
+        .attr("fill", node.color)
+        .attr("opacity", node.value > 0.001 ? 0.9 : 0.3);
+      
+      // 节点文字
+      const textY = node.height / 2;
+      
+      nodeG.append("text")
+        .attr("x", node.width / 2)
+        .attr("y", textY - 12)
+        .attr("text-anchor", "middle")
+        .attr("fill", "#F3F4F6")
+        .attr("font-size", "11px")
+        .attr("font-weight", "bold")
+        .text(node.name);
+      
+      nodeG.append("text")
+        .attr("x", node.width / 2)
+        .attr("y", textY + 4)
+        .attr("text-anchor", "middle")
+        .attr("fill", "#FFFFFF")
+        .attr("font-size", "13px")
+        .attr("font-weight", "bold")
+        .text(`${node.value.toFixed(2)} ${unit}`);
+      
+      nodeG.append("text")
+        .attr("x", node.width / 2)
+        .attr("y", textY + 20)
+        .attr("text-anchor", "middle")
+        .attr("fill", "#E5E7EB")
+        .attr("font-size", "10px")
+        .text(`(${node.percentage}%)`);
+    });
+
+  }, [data, containerWidth, height, instanceId, unit, solar, batteryOut, grid_import, batteryIn, load, grid_export, totalInput, totalOutput, solarToLoad, solarToBatteryIn, solarToGridOut, batteryOutToLoad, batteryOutToBatteryIn, batteryOutToGridOut, gridInToLoad, gridInToBatteryIn, nodeColors, nodeValues, nodePercentages]);
+
+  // 检查是否有能量流
+  const hasFlow = totalInput > 0.001 || totalOutput > 0.001;
+
+  if (!hasFlow) {
     return (
       <div className="flex items-center justify-center text-gray-500" style={{ height }}>
         🌙 No energy flow
@@ -230,114 +423,9 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
     );
   }
 
-  // 为每个节点预计算百分比（基于原始数据）
-  const nodePercentages = {
-    "Solar": totalInput > 0 ? (solar / totalInput * 100).toFixed(1) : "0.0",
-    "Grid In": totalInput > 0 ? (grid_import / totalInput * 100).toFixed(1) : "0.0",
-    "Battery Out": totalInput > 0 ? (batteryOut / totalInput * 100).toFixed(1) : "0.0",
-    "Load": totalOutput > 0 ? (load / totalOutput * 100).toFixed(1) : "0.0",
-    "Grid Out": totalOutput > 0 ? (grid_export / totalOutput * 100).toFixed(1) : "0.0",
-    "Battery In": totalOutput > 0 ? (batteryIn / totalOutput * 100).toFixed(1) : "0.0",
-  };
-
-  // 为每个节点预计算原始值（用于显示）
-  const nodeValues = {
-    "Solar": solar,
-    "Grid In": grid_import,
-    "Battery Out": batteryOut,
-    "Load": load,
-    "Grid Out": grid_export,
-    "Battery In": batteryIn,
-  };
-
-  const CustomNode = (props) => {
-    const { x, y, width, height } = props;
-    const node = props.node ?? props.payload ?? (props?.payload?.node) ?? null;
-    const maybeName = node?.name ?? props.name ?? null;
-    if (!maybeName) return null;
-
-    const name = node?.name ?? props.name;
-    const color = nodeColors[name] || "#888";
-    
-    // 使用原始数据的值和百分比
-    const displayValue = nodeValues[name] ?? 0;
-    const percentage = nodePercentages[name] ?? "0.0";
-
-    return (
-      <Layer>
-        <Rectangle x={x} y={y} width={width} height={height} fill={color} fillOpacity={0.9} rx={6} ry={6} />
-        <text x={x + width / 2} y={y + height / 2 - 12} textAnchor="middle" fill="#F3F4F6" fontSize={11} fontWeight="bold">
-          {name}
-        </text>
-        <text x={x + width / 2} y={y + height / 2 + 4} textAnchor="middle" fill="#FFFFFF" fontSize={13} fontWeight="bold">
-          {displayValue.toFixed(2)} {unit}
-        </text>
-        <text x={x + width / 2} y={y + height / 2 + 20} textAnchor="middle" fill="#E5E7EB" fontSize={10}>
-          ({percentage}%)
-        </text>
-      </Layer>
-    );
-  };
-
-  const CustomLink = (props) => {
-    const {
-      sourceX, sourceY, targetX, targetY,
-      sourceControlX, targetControlX,
-      linkWidth, index, payload,
-    } = props;
-
-    // 检查坐标是否有效
-    if (sourceX === undefined || sourceY === undefined || 
-        targetX === undefined || targetY === undefined ||
-        linkWidth === undefined || linkWidth < 0.1) {
-      return null;
-    }
-
-    const sourceName = payload?.source?.name ?? "unknown";
-    const color = nodeColors[sourceName] || "#888";
-    const gradientId = `sankey-grad-${instanceId}-${index}-${sourceName.replace(/\s/g, '')}`;
-
-    // 确保控制点有效
-    const ctrlX1 = sourceControlX ?? (sourceX + (targetX - sourceX) / 3);
-    const ctrlX2 = targetControlX ?? (targetX - (targetX - sourceX) / 3);
-
-    return (
-      <Layer>
-        <defs>
-          <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor={color} stopOpacity={0.8} />
-            <stop offset="100%" stopColor={color} stopOpacity={0.2} />
-          </linearGradient>
-        </defs>
-        <path
-          d={`M${sourceX},${sourceY} C${ctrlX1},${sourceY} ${ctrlX2},${targetY} ${targetX},${targetY}`}
-          fill="none"
-          stroke={`url(#${gradientId})`}
-          strokeWidth={Math.max(linkWidth, 2)}
-          strokeOpacity={0.9}
-        />
-      </Layer>
-    );
-  };
-
-  // 生成唯一key，确保数据变化时重新渲染
-  const nodeNames = nodes.map(n => n.name).join(',');
-  const linkInfo = links.map(l => `${l.source}-${l.target}-${l.value.toFixed(3)}`).join('|');
-  const sankeyKey = `${instanceId}-${nodeNames}-${linkInfo}`;
-
   return (
-    <div style={{ width: "100%", height, overflowX: "auto" }}>
-      <Sankey
-        key={sankeyKey}
-        width={750}
-        height={height}
-        data={{ nodes, links }}
-        node={<CustomNode />}
-        link={<CustomLink />}
-        nodePadding={50}
-        nodeWidth={110}
-        margin={{ top: 25, right: 25, bottom: 25, left: 25 }}
-      />
+    <div ref={containerRef} style={{ width: "100%", height }}>
+      <svg ref={svgRef}></svg>
     </div>
   );
 };
