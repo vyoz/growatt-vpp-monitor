@@ -5,7 +5,8 @@ import * as d3 from 'd3';
 // ============================================================
 // 配置 - 修改这里的 API 地址
 // ============================================================
-const API_BASE = 'http://localhost:5002';
+//const API_BASE = 'http://localhost:5002';
+const API_BASE = `http://${window.location.hostname}:5002`;
 
 // ============================================================
 // 工具函数
@@ -516,10 +517,12 @@ const RealtimeSection = ({ currentData, error }) => {
           </div>
         </div>
 
-        {/* 右侧：Sankey图 - 占2列 */}
-        <div className="lg:col-span-2 bg-gray-800/50 rounded-xl p-3">
+       {/* 右侧：Sankey图 - 占2列 */}
+        <div className="lg:col-span-2 bg-gray-800/50 rounded-xl p-3 overflow-hidden">
           <h3 className="text-gray-400 text-xs font-medium mb-1">能量流向</h3>
-          <SankeyFlow data={currentData} height={280} instanceId="realtime" />
+          <div className="max-h-[300px]">
+            <SankeyFlow data={currentData} height={280} instanceId="realtime" />
+          </div>
         </div>
       </div>
     </SectionContainer>
