@@ -482,6 +482,7 @@ const StatCard = ({ title, value, unit, icon, color, subtitle }) => {
 // 模块一：实时监控
 // ============================================================
 const RealtimeSection = ({ currentData, error }) => {
+  
   return (
     <SectionContainer>
       <SectionTitle 
@@ -878,7 +879,8 @@ function App() {
   const [historicalData, setHistoricalData] = useState([]);
   const [dailyData, setDailyData] = useState([]);
   const [dailyLoading, setDailyLoading] = useState(false);
-  const [error, setError] = useState(null);
+  //const [error, setError] = useState(null);
+  const [realtimeError, setRealtimeError] = useState(null); 
   
   const [startDate, setStartDate] = useState(getToday());
   const [endDate, setEndDate] = useState(getToday());
@@ -891,7 +893,7 @@ function App() {
         if (!response.ok) throw new Error('API 请求失败');
         const data = await response.json();
         setCurrentData(data);
-        setError(null);
+        setRealtimeError(null);
         
         setHistoricalData(prev => {
           const newData = [...prev, {
@@ -904,7 +906,8 @@ function App() {
           return newData.slice(-60);
         });
       } catch (err) {
-        setError(`连接失败: ${err.message}`);
+        //setError(`连接失败: ${err.message}`);
+        setRealtimeError(`连接失败: ${err.message}`);
       }
     };
 
@@ -980,8 +983,12 @@ function App() {
             ☀️ Growatt Solar Dashboard
           </h1>
           <div className="flex items-center gap-4">
-            <span className={`px-3 py-1 rounded-full text-sm ${currentData.connected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-              {currentData.connected ? '● 已连接' : '○ 未连接'}
+            <span className={`px-3 py-1 rounded-full text-sm ${
+              currentData.connected && !realtimeError 
+                ? 'bg-green-500/20 text-green-400' 
+                : 'bg-red-500/20 text-red-400'
+            }`}>
+              {currentData.connected && !realtimeError ? '● 已连接' : '○ 未连接'}
             </span>
           </div>
         </div>
@@ -990,7 +997,7 @@ function App() {
       {/* 三个模块 */}
       <div className="max-w-7xl mx-auto space-y-6">
         {/* 模块一：实时监控 */}
-        <RealtimeSection currentData={currentData} error={error} />
+        <RealtimeSection currentData={currentData} error={realtimeError} />
 
         {/* 模块二：历史统计 */}
         <StatisticsSection 
