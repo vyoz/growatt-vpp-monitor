@@ -12,7 +12,10 @@ const API_BASE = `http://${window.location.hostname}:5002`;
 // 工具函数
 // ============================================================
 const formatDate = (date) => {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const getToday = () => formatDate(new Date());
@@ -64,7 +67,7 @@ const DateRangePicker = ({ startDate, endDate, onStartDateChange, onEndDateChang
         />
       </div>
       <button
-        onClick={onApply}
+        onClick={() => onApply()}
         className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded font-medium transition-colors"
       >
         查询
@@ -74,7 +77,7 @@ const DateRangePicker = ({ startDate, endDate, onStartDateChange, onEndDateChang
           const today = getToday();
           onStartDateChange(today);
           onEndDateChange(today);
-          setTimeout(onApply, 0);
+          onApply(today, today);
         }}
         className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded text-sm transition-colors"
       >
@@ -82,12 +85,11 @@ const DateRangePicker = ({ startDate, endDate, onStartDateChange, onEndDateChang
       </button>
       <button
         onClick={() => {
-          const today = new Date();
-          const weekAgo = new Date(today);
-          weekAgo.setDate(weekAgo.getDate() - 7);
-          onStartDateChange(formatDate(weekAgo));
-          onEndDateChange(formatDate(today));
-          setTimeout(onApply, 0);
+          const today = formatDate(new Date());
+          const weekAgo = formatDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+          onStartDateChange(weekAgo);
+          onEndDateChange(today);
+          onApply(weekAgo, today);
         }}
         className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded text-sm transition-colors"
       >
@@ -95,12 +97,11 @@ const DateRangePicker = ({ startDate, endDate, onStartDateChange, onEndDateChang
       </button>
       <button
         onClick={() => {
-          const today = new Date();
-          const monthAgo = new Date(today);
-          monthAgo.setDate(monthAgo.getDate() - 30);
-          onStartDateChange(formatDate(monthAgo));
-          onEndDateChange(formatDate(today));
-          setTimeout(onApply, 0);
+          const today = formatDate(new Date());
+          const monthAgo = formatDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+          onStartDateChange(monthAgo);
+          onEndDateChange(today);
+          onApply(monthAgo, today);
         }}
         className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded text-sm transition-colors"
       >
@@ -920,16 +921,18 @@ function App() {
   }, []);
 
   // 获取每日统计数据
-  const fetchDailyRange = useCallback(async () => {
+  const fetchDailyRange = useCallback(async (start, end) => {
+    const queryStart = start || startDate;
+    const queryEnd = end || endDate;
     setDailyLoading(true);
     try {
-      if (startDate === endDate) {
-        const response = await fetch(`${API_BASE}/api/daily?date=${startDate}`);
+      if (queryStart === queryEnd) {
+        const response = await fetch(`${API_BASE}/api/daily?date=${queryStart}`);
         if (!response.ok) throw new Error('获取每日数据失败');
         const data = await response.json();
         setDailyData([data]);
       } else {
-        const response = await fetch(`${API_BASE}/api/daily/range?start_date=${startDate}&end_date=${endDate}`);
+        const response = await fetch(`${API_BASE}/api/daily/range?start_date=${queryStart}&end_date=${queryEnd}`);
         if (!response.ok) throw new Error('获取日期范围数据失败');
         const result = await response.json();
         setDailyData(result.data || []);
@@ -943,9 +946,11 @@ function App() {
   }, [startDate, endDate]);
 
   // 获取历史曲线数据
-  const fetchHistoryRange = useCallback(async () => {
+  const fetchHistoryRange = useCallback(async (start, end) => {
+    const queryStart = start || startDate;
+    const queryEnd = end || endDate;
     try {
-      const response = await fetch(`${API_BASE}/api/history/range?start_date=${startDate}&end_date=${endDate}&limit=300`);
+      const response = await fetch(`${API_BASE}/api/history/range?start_date=${queryStart}&end_date=${queryEnd}&limit=300`);
       if (!response.ok) return;
       const result = await response.json();
       
@@ -966,15 +971,18 @@ function App() {
     }
   }, [startDate, endDate]);
 
-  // 初始加载
+  // 初始加载 - 每次都用最新的今天日期
   useEffect(() => {
-    fetchDailyRange();
-  }, [fetchDailyRange]);
+    const today = getToday();
+    setStartDate(today);
+    setEndDate(today);
+    fetchDailyRange(today, today);
+  }, []); // 只在组件挂载时执行一次
 
   // 查询按钮处理
-  const handleApply = () => {
-    fetchDailyRange();
-    fetchHistoryRange();
+  const handleApply = (start, end) => {
+    fetchDailyRange(start, end);
+    fetchHistoryRange(start, end);
   };
 
   return (
