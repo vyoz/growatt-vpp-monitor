@@ -511,8 +511,7 @@ const RealtimeSection = ({ currentData, error }) => {
           
           <h3 className="text-gray-400 text-xs font-medium">电池状态</h3>
           <div className="grid grid-cols-2 gap-1.5">
-            <MiniStatCard title="SOC INV" value={currentData.soc_inv} icon="📊" color="emerald" unit="%" />
-            <MiniStatCard title="SOC BMS" value={currentData.soc_bms} icon="📈" color="emerald" unit="%" />
+            <BatteryCard title="SOC INV" value={currentData.soc_inv} />
           </div>
         </div>
 
@@ -577,6 +576,46 @@ const MiniStatCard = ({ title, value, icon, color, unit = "kW" }) => {
   );
 };
 
+// 电池状态卡片（带SVG电池图标）
+const BatteryCard = ({ title, value }) => {
+  const percentage = typeof value === 'number' ? value : 0;
+  
+  // 根据电量选择颜色
+  const getColor = (pct) => {
+    if (pct >= 30) return '#34D399';  // 绿色
+    if (pct >= 10) return '#F59E0B';  // 橙色
+    return '#EF4444';  // 红色
+  };
+  
+  const color = getColor(percentage);
+  const fillWidth = Math.max(0, Math.min(100, percentage));
+
+  return (
+    <div className="bg-gray-800/50 rounded-lg px-3 py-2 flex items-center gap-3">
+      {/* SVG 电池图标 */}
+      <svg width="48" height="24" viewBox="0 0 48 24">
+        {/* 电池外框 */}
+        <rect x="1" y="3" width="40" height="18" rx="3" ry="3" 
+          fill="none" stroke="#6B7280" strokeWidth="2"/>
+        {/* 电池头 */}
+        <rect x="41" y="8" width="5" height="8" rx="1" ry="1" 
+          fill="#6B7280"/>
+        {/* 电量填充 */}
+        <rect x="3" y="5" width={fillWidth * 0.36} height="14" rx="2" ry="2" 
+          fill={color}/>
+      </svg>
+      
+      {/* 文字信息 */}
+      <div>
+        <p className="text-gray-400 text-xs">{title}</p>
+        <p className="text-white text-lg font-bold">
+          {percentage.toFixed(0)}
+          <span className="text-sm ml-0.5">%</span>
+        </p>
+      </div>
+    </div>
+  );
+};
 
 // ============================================================
 // 模块二：历史统计
