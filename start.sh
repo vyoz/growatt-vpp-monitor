@@ -52,7 +52,7 @@ echo "======================================"
 echo ""
 
 # 使用nohup在后台运行,并将输出重定向到日志文件
-PORT=5002 python3 src/api_server.py 2>&1 | tee api_server.log &
+PORT=5002 nohup python3 src/api_server.py >> api_server.log 2>&1 &
 API_PID=$!
 
 echo "API服务器PID: $API_PID"
