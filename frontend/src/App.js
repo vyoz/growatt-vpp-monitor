@@ -197,21 +197,38 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
   const initialWidthRef = useRef(null);
   
   useEffect(() => {
-    // 判断是否是手机（屏幕宽度小于 1024px）
     const isMobile = window.innerWidth < 1024;
     
     if (isMobile) {
-      // 手机上直接用屏幕宽度减去 padding（左右各24px容器padding + 12px内边距 + 安全边距）
+      // 手机上直接用屏幕宽度减去 padding
       const mobileWidth = window.innerWidth - 80;
       setContainerWidth(mobileWidth);
       initialWidthRef.current = mobileWidth;
-    } else if (containerRef.current) {
-      // 电脑上用容器实际宽度
-      const width = containerRef.current.getBoundingClientRect().width;
-      if (width > 0) {
-        setContainerWidth(width);
-        initialWidthRef.current = width;
-      }
+    } else {
+      // 电脑上：延迟获取容器宽度，等布局稳定
+      const updateWidth = () => {
+        if (containerRef.current) {
+          const width = containerRef.current.getBoundingClientRect().width;
+          if (width > 100) { // 确保宽度合理
+            setContainerWidth(width);
+            initialWidthRef.current = width;
+          }
+        }
+      };
+      
+      // 立即尝试一次
+      updateWidth();
+      
+      // 延迟再试几次，确保布局稳定
+      const timer1 = setTimeout(updateWidth, 100);
+      const timer2 = setTimeout(updateWidth, 300);
+      const timer3 = setTimeout(updateWidth, 500);
+      
+      return () => {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+        clearTimeout(timer3);
+      };
     }
     
     // 监听窗口 resize
@@ -222,7 +239,7 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
         setContainerWidth(mobileWidth);
       } else if (containerRef.current) {
         const width = containerRef.current.getBoundingClientRect().width;
-        if (width > 0) {
+        if (width > 100) {
           setContainerWidth(width);
         }
       }
