@@ -896,6 +896,230 @@ const ChartSection = ({ historicalData, startDate, endDate }) => {
 
 
 // ============================================================
+// 模块四：电池电量曲线
+// ============================================================
+const BatterySOCSection = ({ socData, startDate, endDate, onStartDateChange, onEndDateChange, onApply, isLoading }) => {
+  const scrollContainerRef = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  
+  const dateRangeText = startDate === endDate ? startDate : `${startDate} ~ ${endDate}`;
+  
+  // 计算图表宽度：每个数据点 80px，最小容器宽度
+  const hoursCount = socData.length;
+  const chartWidth = hoursCount * 80;
+  const needsScroll = hoursCount > 15;
+  
+  // 数据加载完成后，滚动到最右端（最新数据）
+  useEffect(() => {
+    if (needsScroll && scrollContainerRef.current) {
+      // 延迟一点确保图表已渲染
+      setTimeout(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
+        }
+      }, 100);
+    }
+  }, [socData, needsScroll]);
+  
+  // 鼠标/触摸拖动处理
+  const handleMouseDown = (e) => {
+    if (!needsScroll) return;
+    setIsDragging(true);
+    setStartX(e.pageX || e.touches?.[0]?.pageX);
+    setScrollLeft(scrollContainerRef.current?.scrollLeft || 0);
+  };
+  
+  const handleMouseMove = (e) => {
+    if (!isDragging || !scrollContainerRef.current) return;
+    e.preventDefault();
+    const x = e.pageX || e.touches?.[0]?.pageX;
+    const walk = (startX - x) * 1.5;
+    scrollContainerRef.current.scrollLeft = scrollLeft + walk;
+  };
+  
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  // 格式化时间显示（只显示小时）
+  const formatHour = (timestamp) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <SectionContainer>
+      {/* 标题和日期选择器 */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🔋</span>
+          <div>
+            <h2 className="text-lg font-bold text-white">电池电量曲线</h2>
+            <p className="text-gray-400 text-xs">{dateRangeText} | 数据点: {socData.length}</p>
+          </div>
+        </div>
+        
+        {/* 日期选择器 */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => onStartDateChange(e.target.value)}
+            className="bg-gray-700 text-white text-xs px-2 py-1 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+          />
+          <span className="text-gray-400 text-xs">~</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => onEndDateChange(e.target.value)}
+            className="bg-gray-700 text-white text-xs px-2 py-1 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+          />
+          <button
+            onClick={() => onApply()}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs font-medium transition-colors"
+          >
+            查询
+          </button>
+          <button
+            onClick={() => {
+              const today = getToday();
+              onStartDateChange(today);
+              onEndDateChange(today);
+              onApply(today, today);
+            }}
+            className="bg-gray-600 hover:bg-gray-500 text-white px-2 py-1 rounded text-xs transition-colors"
+          >
+            今天
+          </button>
+          <button
+            onClick={() => {
+              const today = formatDate(new Date());
+              const weekAgo = formatDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+              onStartDateChange(weekAgo);
+              onEndDateChange(today);
+              onApply(weekAgo, today);
+            }}
+            className="bg-gray-600 hover:bg-gray-500 text-white px-2 py-1 rounded text-xs transition-colors"
+          >
+            7天
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="text-gray-400 text-center py-8">加载中...</div>
+      ) : socData.length === 0 ? (
+        <div className="text-gray-400 text-center py-8">暂无数据</div>
+      ) : (
+        <div className="bg-gray-800/50 rounded-xl p-4">
+          {/* 滚动提示 */}
+          {needsScroll && (
+            <div className="text-gray-400 text-xs mb-2 flex items-center gap-1">
+              <span>👆</span>
+              <span>左右拖动查看更多数据</span>
+            </div>
+          )}
+          
+          {/* 可滚动的图表容器 */}
+          <div 
+            ref={scrollContainerRef}
+            className={`overflow-x-auto ${needsScroll ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onTouchStart={handleMouseDown}
+            onTouchMove={handleMouseMove}
+            onTouchEnd={handleMouseUp}
+            style={{ 
+              scrollbarWidth: 'thin',
+              scrollbarColor: '#4B5563 #1F2937'
+            }}
+          >
+            {needsScroll ? (
+              // 滚动模式：固定宽度
+              <LineChart 
+                data={socData} 
+                width={chartWidth} 
+                height={350}
+                margin={{ top: 10, right: 30, left: 40, bottom: 80 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#9CA3AF" 
+                  fontSize={10}
+                  interval={0}
+                  angle={-45}
+                  textAnchor="end"
+                />
+                <YAxis 
+                  stroke="#9CA3AF" 
+                  domain={[0, 100]}
+                  tickFormatter={(value) => `${value}%`}
+                />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
+                  labelStyle={{ color: '#F3F4F6' }}
+                  formatter={(value) => [`${value}%`, 'SOC']}
+                />
+                <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                <Line 
+                  type="monotone" 
+                  dataKey="soc" 
+                  stroke="#34D399" 
+                  strokeWidth={2} 
+                  dot={false} 
+                  name="电池电量 (%)"
+                  connectNulls
+                />
+              </LineChart>
+            ) : (
+              // 非滚动模式：响应式宽度
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={socData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis 
+                    dataKey="time" 
+                    stroke="#9CA3AF" 
+                    fontSize={10}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis 
+                    stroke="#9CA3AF" 
+                    domain={[0, 100]}
+                    tickFormatter={(value) => `${value}%`}
+                  />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
+                    labelStyle={{ color: '#F3F4F6' }}
+                    formatter={(value) => [`${value}%`, 'SOC']}
+                  />
+                  <Legend />
+                  <Line 
+                    type="monotone" 
+                    dataKey="soc" 
+                    stroke="#34D399" 
+                    strokeWidth={2} 
+                    dot={false} 
+                    name="电池电量 (%)"
+                    connectNulls
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      )}
+    </SectionContainer>
+  );
+};
+
+
+// ============================================================
 // 主 Dashboard 组件
 // ============================================================
 function App() {
@@ -908,11 +1132,17 @@ function App() {
   const [historicalData, setHistoricalData] = useState([]);
   const [dailyData, setDailyData] = useState([]);
   const [dailyLoading, setDailyLoading] = useState(false);
+  const [socData, setSocData] = useState([]);
+  const [socLoading, setSocLoading] = useState(false);
   //const [error, setError] = useState(null);
   const [realtimeError, setRealtimeError] = useState(null); 
   
   const [startDate, setStartDate] = useState(getToday());
   const [endDate, setEndDate] = useState(getToday());
+  
+  // SOC 图表单独的日期状态
+  const [socStartDate, setSocStartDate] = useState(getToday());
+  const [socEndDate, setSocEndDate] = useState(getToday());
 
   // 实时数据轮询
   useEffect(() => {
@@ -996,12 +1226,69 @@ function App() {
     }
   }, [startDate, endDate]);
 
+  // 获取 SOC 历史数据
+  const fetchSOCData = useCallback(async (start, end) => {
+    const queryStart = start || socStartDate;
+    const queryEnd = end || socEndDate;
+    setSocLoading(true);
+    try {
+      // 获取更多数据点用于 SOC 曲线
+      const response = await fetch(`${API_BASE}/api/history/range?start_date=${queryStart}&end_date=${queryEnd}&limit=5000`);
+      if (!response.ok) throw new Error('获取SOC数据失败');
+      const result = await response.json();
+      
+      if (result.data && result.data.length > 0) {
+        // 按小时采样：取每个小时前30秒内的第一个数据点
+        const hourlyData = [];
+        const seenHours = new Set();
+        
+        for (const d of result.data) {
+          const date = new Date(d.timestamp);
+          const minute = date.getMinutes();
+          const second = date.getSeconds();
+          
+          // 只取每小时0-30秒内的数据
+          if (minute === 0 && second <= 30) {
+            // 生成小时标识：YYYY-MM-DD-HH
+            const hourKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+            
+            if (!seenHours.has(hourKey)) {
+              seenHours.add(hourKey);
+              hourlyData.push({
+                time: `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}时`,
+                timestamp: d.timestamp,
+                soc: d.soc_bms || d.soc_inv || 0
+              });
+            }
+          }
+        }
+        
+        setSocData(hourlyData);
+      } else {
+        setSocData([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch SOC data:', err);
+      setSocData([]);
+    } finally {
+      setSocLoading(false);
+    }
+  }, [socStartDate, socEndDate]);
+
+  // SOC 查询按钮处理
+  const handleSOCApply = (start, end) => {
+    fetchSOCData(start, end);
+  };
+
   // 初始加载 - 每次都用最新的今天日期
   useEffect(() => {
     const today = getToday();
     setStartDate(today);
     setEndDate(today);
+    setSocStartDate(today);
+    setSocEndDate(today);
     fetchDailyRange(today, today);
+    fetchSOCData(today, today);
   }, []); // 只在组件挂载时执行一次
 
   // 查询按钮处理
@@ -1051,6 +1338,17 @@ function App() {
           historicalData={historicalData}
           startDate={startDate}
           endDate={endDate}
+        />
+
+        {/* 模块四：电池电量曲线 */}
+        <BatterySOCSection 
+          socData={socData}
+          isLoading={socLoading}
+          startDate={socStartDate}
+          endDate={socEndDate}
+          onStartDateChange={setSocStartDate}
+          onEndDateChange={setSocEndDate}
+          onApply={handleSOCApply}
         />
       </div>
 
