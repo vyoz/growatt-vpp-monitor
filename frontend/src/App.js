@@ -1009,10 +1009,10 @@ const BatterySOCSection = ({ socData, startDate, endDate, onStartDateChange, onE
   
   const dateRangeText = startDate === endDate ? startDate : `${startDate} ~ ${endDate}`;
   
-  // 计算图表宽度：每个数据点 80px，最小容器宽度
+  // 计算图表宽度：每个数据点 30px，24个点刚好一屏；超过24个才滚动
   const hoursCount = socData.length;
-  const chartWidth = hoursCount * 80;
-  const needsScroll = hoursCount > 15;
+  const chartWidth = hoursCount * 30;
+  const needsScroll = hoursCount > 24;
   
   // 数据加载完成后，滚动到最右端（最新数据）
   useEffect(() => {
@@ -1088,14 +1088,17 @@ const BatterySOCSection = ({ socData, startDate, endDate, onStartDateChange, onE
           </button>
           <button
             onClick={() => {
-              const today = getToday();
-              onStartDateChange(today);
-              onEndDateChange(today);
-              onApply(today, today);
+              const now = new Date();
+              const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+              const todayStr = formatDate(now);
+              const yesterdayStr = formatDate(yesterday);
+              onStartDateChange(yesterdayStr);
+              onEndDateChange(todayStr);
+              onApply(yesterdayStr, todayStr, now.getTime() - 24 * 60 * 60 * 1000);
             }}
             className="bg-gray-600 hover:bg-gray-500 text-white px-2 py-1 rounded text-xs transition-colors"
           >
-            今天
+            过去24小时
           </button>
           <button
             onClick={() => {
@@ -1107,7 +1110,7 @@ const BatterySOCSection = ({ socData, startDate, endDate, onStartDateChange, onE
             }}
             className="bg-gray-600 hover:bg-gray-500 text-white px-2 py-1 rounded text-xs transition-colors"
           >
-            7天
+            过去7天
           </button>
         </div>
       </div>
@@ -1330,7 +1333,7 @@ function App() {
   }, [startDate, endDate]);
 
   // 获取 SOC 历史数据
-  const fetchSOCData = useCallback(async (start, end) => {
+  const fetchSOCData = useCallback(async (start, end, filterFromTimestamp = null) => {
     const queryStart = start || socStartDate;
     const queryEnd = end || socEndDate;
     setSocLoading(true);
@@ -1347,6 +1350,12 @@ function App() {
         
         for (const d of result.data) {
           const date = new Date(d.timestamp);
+
+           // 如果有过滤时间戳，跳过早于该时间的数据
+          if (filterFromTimestamp && date.getTime() < filterFromTimestamp) {
+            continue;
+          }
+          
           const minute = date.getMinutes();
           const second = date.getSeconds();
           
@@ -1379,19 +1388,22 @@ function App() {
   }, [socStartDate, socEndDate]);
 
   // SOC 查询按钮处理
-  const handleSOCApply = (start, end) => {
-    fetchSOCData(start, end);
+  const handleSOCApply = (start, end, filterFromTimestamp = null) => {
+    fetchSOCData(start, end, filterFromTimestamp);
   };
 
   // 初始加载 - 每次都用最新的今天日期
   useEffect(() => {
     const today = getToday();
+    const now = new Date();
+    const yesterday = formatDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     setStartDate(today);
     setEndDate(today);
-    setSocStartDate(today);
+    setSocStartDate(yesterday);
     setSocEndDate(today);
     fetchDailyRange(today, today);
-    fetchSOCData(today, today);
+    // SOC 默认使用过去24小时（精确到小时）
+    fetchSOCData(yesterday, today, now.getTime() - 24 * 60 * 60 * 1000);
   }, []); // 只在组件挂载时执行一次
 
   // 查询按钮处理
