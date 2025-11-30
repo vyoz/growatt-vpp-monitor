@@ -492,7 +492,7 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
         .attr("fill", "#FFFFFF")
         .attr("font-size", "13px")
         .attr("font-weight", "bold")
-        .text(`${node.value.toFixed(2)} ${unit}`);
+        .text(node.value.toFixed(2));
       
       nodeG.append("text")
         .attr("x", node.width / 2)
@@ -653,7 +653,7 @@ const RealtimeSection = ({ currentData, error }) => {
 
         {/* 右侧：Sankey图 - 占2列 */}
         <div className="lg:col-span-2 bg-gray-800/50 rounded-xl p-3 overflow-hidden">
-          <h3 className="text-gray-400 text-xs font-medium mb-1">能量流向</h3>
+          <h3 className="text-gray-400 text-xs font-medium mb-1">能量流向 <span className="text-gray-500">(kW)</span></h3>
           <SankeyFlow data={data} height={280} instanceId="realtime" />
         </div>
       </div>
@@ -909,7 +909,7 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
           {/* 右侧：图表 - 占2列 */}
           <div className="lg:col-span-2 bg-gray-800/50 rounded-xl p-3">
             <h3 className="text-gray-400 text-xs font-medium mb-1">
-              {viewMode === 'sankey' ? '能量流向' : '每日统计'}
+              {viewMode === 'sankey' ? '能量流向' : '每日统计'} <span className="text-gray-500">(kWh)</span>
             </h3>
             
             {/* 柱状图（多天且选择chart时显示） */}
