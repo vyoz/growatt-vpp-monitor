@@ -758,17 +758,6 @@ const BatteryCard = ({ title, value }) => {
 // 模块二：历史统计
 // ============================================================
 const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDateChange, onEndDateChange, onApply }) => {
-  const [viewMode, setViewMode] = useState('chart');
-  
-  // 当数据变化时，多天默认显示柱状图，单天默认显示sankey
-  useEffect(() => {
-    if (dailyData.length === 1) {
-      setViewMode('sankey');
-    } else if (dailyData.length > 1) {
-      setViewMode('chart');
-    }
-  }, [dailyData.length]);
-
   // 计算汇总
   const totals = dailyData.reduce((acc, d) => ({
     solar: acc.solar + (d.solar_kwh || 0),
@@ -779,17 +768,15 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
     grid_export: acc.grid_export + (d.grid_export_kwh || 0),
   }), { solar: 0, load: 0, battery_charge: 0, battery_discharge: 0, grid_import: 0, grid_export: 0 });
 
-  const chartData = dailyData.map(d => ({
+  // 收支曲线图数据：In (Solar + Grid Import) vs Out (Load + Grid Export)
+  const balanceChartData = dailyData.map(d => ({
     date: d.date?.slice(5) || '',
-    solar: d.solar_kwh || 0,
-    load: d.load_kwh || 0,
-    gridExport: d.grid_export_kwh || 0,
-    gridImport: d.grid_import_kwh || 0,
-    batteryCharge: d.battery_charge_kwh || 0,
-    batteryDischarge: d.battery_discharge_kwh || 0,
+    energyIn: (d.solar_kwh || 0) + (d.grid_import_kwh || 0),
+    energyOut: (d.load_kwh || 0) + (d.grid_export_kwh || 0),
   }));
 
   const dateRangeText = startDate === endDate ? startDate : `${startDate} ~ ${endDate}`;
+  const isMultiDay = dailyData.length > 1;
 
   return (
     <SectionContainer>
@@ -869,90 +856,53 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
       ) : !dailyData || dailyData.length === 0 ? (
         <div className="text-gray-400 text-center py-8">暂无数据</div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* 左侧：数据卡片 - 占1列 */}
-          <div className="lg:col-span-1 space-y-2">
-            <h3 className="text-gray-400 text-xs font-medium">
-              {dailyData.length === 1 ? '当日统计 (kWh)' : `${dailyData.length}天汇总 (kWh)`}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {/* Sankey 流向图 */}
+          <div className="bg-gray-800/50 rounded-xl p-3">
+            <h3 className="text-gray-400 text-xs font-medium mb-1">
+              能量流向 <span className="text-gray-500">({isMultiDay ? `${dailyData.length}天汇总` : '当日'} kWh)</span>
             </h3>
-            <div className="grid grid-cols-2 gap-1.5">
-              <MiniStatCard title="Solar" value={totals.solar} icon="☀️" color="yellow" unit="kWh" />
-              <MiniStatCard title="Load" value={totals.load} icon="🏠" color="purple" unit="kWh" />
-              <MiniStatCard title="Charge" value={totals.battery_charge} icon="🔋↓" color="cyan" unit="kWh" />
-              <MiniStatCard title="Discharge" value={totals.battery_discharge} icon="🔋↑" color="cyan" unit="kWh" />
-              <MiniStatCard title="Grid In" value={totals.grid_import} icon="⬇️" color="blue" unit="kWh" />
-              <MiniStatCard title="Grid Out" value={totals.grid_export} icon="⬆️" color="green" unit="kWh" />
-            </div>
-            
-            {/* 多天时显示视图切换 */}
-            {dailyData.length > 1 && (
-              <div className="pt-1">
-                <h3 className="text-gray-400 text-xs font-medium mb-1">视图切换</h3>
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => setViewMode('chart')}
-                    className={`flex-1 px-2 py-1 rounded text-xs transition-colors ${
-                      viewMode === 'chart' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    📊 柱状图
-                  </button>
-                  <button
-                    onClick={() => setViewMode('sankey')}
-                    className={`flex-1 px-2 py-1 rounded text-xs transition-colors ${
-                      viewMode === 'sankey' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    ⚡ 流向图
-                  </button>
-                </div>
-              </div>
-            )}
+            <SankeyFlow 
+              data={{
+                solar: totals.solar,
+                load: totals.load,
+                battery_charge: totals.battery_charge,
+                battery_discharge: totals.battery_discharge,
+                grid_import: totals.grid_import,
+                grid_export: totals.grid_export,
+                battery_net: totals.battery_charge - totals.battery_discharge,
+              }}
+              unit="kWh"
+              height={300}
+              instanceId="history"
+            />
           </div>
 
-          {/* 右侧：图表 - 占2列 */}
-          <div className="lg:col-span-2 bg-gray-800/50 rounded-xl p-3">
+          {/* 曲线图 - 始终显示 */}
+          <div className="bg-gray-800/50 rounded-xl p-3">
             <h3 className="text-gray-400 text-xs font-medium mb-1">
-              {viewMode === 'sankey' ? '能量流向' : '每日统计'} <span className="text-gray-500">(kWh)</span>
+              每日能量收支 <span className="text-gray-500">(kWh)</span>
             </h3>
-            
-            {/* 柱状图（多天且选择chart时显示） */}
-            {dailyData.length > 1 && viewMode === 'chart' && (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="date" stroke="#9CA3AF" />
-                  <YAxis stroke="#9CA3AF" />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
-                    labelStyle={{ color: '#F3F4F6' }}
-                  />
-                  <Legend />
-                  <Bar dataKey="solar" fill="#FCD34D" name="Solar" />
-                  <Bar dataKey="load" fill="#A78BFA" name="Load" />
-                  <Bar dataKey="gridExport" fill="#34D399" name="Grid Export" />
-                  <Bar dataKey="gridImport" fill="#60A5FA" name="Grid Import" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-
-            {/* Sankey图 */}
-            {(dailyData.length === 1 || viewMode === 'sankey') && (
-              <SankeyFlow 
-                data={{
-                  solar: totals.solar,
-                  load: totals.load,
-                  battery_charge: totals.battery_charge,
-                  battery_discharge: totals.battery_discharge,
-                  grid_import: totals.grid_import,
-                  grid_export: totals.grid_export,
-                  battery_net: totals.battery_charge - totals.battery_discharge,
-                }}
-                unit="kWh"
-                height={280}
-                instanceId="history"
-              />
-            )}
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={balanceChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="date" stroke="#9CA3AF" fontSize={11} />
+                <YAxis stroke="#9CA3AF" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
+                  labelStyle={{ color: '#F3F4F6' }}
+                  formatter={(value, name) => [
+                    `${value.toFixed(2)} kWh`,
+                    name === 'energyIn' ? '获取 (Solar + Grid In)' : '消耗 (Load + Grid Out)'
+                  ]}
+                />
+                <Legend 
+                  formatter={(value) => value === 'energyIn' ? '能量获取' : '能量消耗'}
+                />
+                <Line type="monotone" dataKey="energyIn" stroke="#FCD34D" strokeWidth={2} dot={{ fill: '#FCD34D', r: 4 }} name="energyIn" />
+                <Line type="monotone" dataKey="energyOut" stroke="#A78BFA" strokeWidth={2} dot={{ fill: '#A78BFA', r: 4 }} name="energyOut" />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
       )}
@@ -1396,16 +1346,17 @@ function App() {
     fetchSOCData(start, end, filterFromTimestamp);
   };
 
-  // 初始加载 - 每次都用最新的今天日期
+  // 初始加载 - 默认使用过去7天
   useEffect(() => {
     const today = getToday();
     const now = new Date();
+    const weekAgo = formatDate(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
     const yesterday = formatDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    setStartDate(today);
+    setStartDate(weekAgo);
     setEndDate(today);
     setSocStartDate(yesterday);
     setSocEndDate(today);
-    fetchDailyRange(today, today);
+    fetchDailyRange(weekAgo, today);
     // SOC 默认使用过去24小时（精确到小时）
     fetchSOCData(yesterday, today, now.getTime() - 24 * 60 * 60 * 1000);
   }, []); // 只在组件挂载时执行一次
