@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Growatt Solar Dashboard - .NET</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: #030712;
+        }
+        .card {
+            background: rgba(17, 24, 39, 0.5);
+            border: 1px solid #1f2937;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .stat-card {
+            border-radius: 0.75rem;
+            padding: 1rem;
+            text-align: center;
+        }
+        .battery-icon {
+            width: 60px;
+            height: 30px;
+            display: inline-block;
+            position: relative;
+            border: 2px solid #6B7280;
+            border-radius: 4px;
+        }
+        .battery-fill {
+            height: 100%;
+            background: #34D399;
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+        .battery-head {
+            position: absolute;
+            right: -6px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 4px;
+            height: 40%;
+            background: #6B7280;
+            border-radius: 0 2px 2px 0;
+        }
+        #sankey {
+            background: rgba(31, 41, 55, 0.3);
+            border-radius: 0.5rem;
+        }
+        .tab-button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            background: rgba(31, 41, 55, 0.5);
+            color: #9CA3AF;
+            cursor: pointer;
+            border-radius: 0.5rem 0.5rem 0 0;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+        }
+        .tab-button:hover {
+            background: rgba(31, 41, 55, 0.7);
+            color: #D1D5DB;
+        }
+        .tab-button.active {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60A5FA;
+            border-bottom-color: #3B82F6;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .hamburger-menu {
+            position: relative;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        @media (max-width: 768px) {
+            .hamburger-menu {
+                position: absolute;
+                top: 1rem;
+                right: 1rem;
+            }
+        }
+        .hamburger-icon {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 0.5rem;
+            background: rgba(31, 41, 55, 0.5);
+            border: 1px solid #374151;
+        }
+        .hamburger-icon:hover {
+            background: rgba(55, 65, 81, 0.5);
+        }
+        .hamburger-line {
+            width: 24px;
+            height: 3px;
+            background: #9CA3AF;
+            border-radius: 2px;
+        }
+        .menu-dropdown {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 100%;
+            margin-top: 0.5rem;
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            min-width: 180px;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        .menu-dropdown.show {
+            display: block;
+        }
+        .menu-item {
+            padding: 0.75rem 1rem;
+            color: #D1D5DB;
+            cursor: pointer;
+            border-bottom: 1px solid #374151;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .menu-item:last-child {
+            border-bottom: none;
+        }
+        .menu-item:hover {
+            background: rgba(55, 65, 81, 0.5);
+            color: white;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div id="app" style="min-height: 100vh; color: white; padding: 1.5rem;">
+        <div style="max-width: 80rem; margin: 0 auto;">
+            <!-- Header -->
+            <div style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                    <h1 style="font-size: 2rem; font-weight: bold; background: linear-gradient(to right, #FBBF24, #F97316); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block; margin: 0;">
+                        ☀️ 太能管家
+                    </h1>
+                    <span id="status" style="padding: 0.5rem 1rem; border-radius: 9999px; font-size: 0.875rem; background: rgba(239, 68, 68, 0.2); color: #FCA5A5;">
+                        ○ 连接中...
+                    </span>
+                </div>
+                <div class="hamburger-menu">
+                    <div class="hamburger-icon" id="hamburgerIcon">
+                        <div class="hamburger-line"></div>
+                        <div class="hamburger-line"></div>
+                        <div class="hamburger-line"></div>
+                    </div>
+                    <div class="menu-dropdown" id="menuDropdown">
+                        <div class="menu-item" id="refreshTodayBtn">
+                            🔄 刷新当前日期
+                        </div>
+                        <div class="menu-item" id="logoutMenuItem">
+                            🚪 退出登录
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
+                    <h2 style="font-size: 1.25rem; font-weight: bold; margin: 0;">⚡ 实时监控</h2>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(31, 41, 55, 0.5); padding: 0.5rem; border-radius: 0.5rem;">
+                        <button id="prevDayBtn" style="background: rgba(59, 130, 246, 0.3); border: 1px solid #3B82F6; color: #93C5FD; border-radius: 0.25rem; padding: 0.25rem 0.5rem; font-size: 0.875rem; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;">◀</button>
+                        <input type="date" id="historicalDatePicker" style="background: rgba(17, 24, 39, 0.8); border: 1px solid #374151; border-radius: 0.25rem; padding: 0.25rem 0.5rem; color: white; font-size: 0.875rem; cursor: pointer;">
+                        <button id="nextDayBtn" style="background: rgba(59, 130, 246, 0.3); border: 1px solid #3B82F6; color: #93C5FD; border-radius: 0.25rem; padding: 0.25rem 0.5rem; font-size: 0.875rem; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;">▶</button>
+                    </div>
+                </div>
+                <p id="timestamp" style="color: #9CA3AF; font-size: 0.875rem; margin-bottom: 1rem;">等待数据...</p>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                    <div class="stat-card" style="background: rgba(252, 211, 77, 0.2);">
+                        <div style="font-size: 0.875rem; color: #FCD34D; margin-bottom: 0.5rem;">☀️ Solar</div>
+                        <div style="font-size: 1.75rem; font-weight: bold;"><span id="solarDaily">0.00</span> <span style="font-size: 1.1rem;">kWh</span></div>
+                        <div style="font-size: 1rem; color: #D1D5DB; margin-top: 0.25rem;">当前 <span id="solar">0.00</span> kW</div>
+                    </div>
+                    <div class="stat-card" style="background: rgba(167, 139, 250, 0.2);">
+                        <div style="font-size: 0.875rem; color: #A78BFA; margin-bottom: 0.5rem;">🏠 Load</div>
+                        <div style="font-size: 1.75rem; font-weight: bold;"><span id="loadDaily">0.00</span> <span style="font-size: 1.1rem;">kWh</span></div>
+                        <div style="font-size: 1rem; color: #D1D5DB; margin-top: 0.25rem;">当前 <span id="load">0.00</span> kW</div>
+                    </div>
+                    <div class="stat-card" style="background: rgba(34, 211, 238, 0.2);">
+                        <div style="font-size: 0.875rem; color: #22D3EE; margin-bottom: 0.5rem;">🔋↓ Batt In</div>
+                        <div style="font-size: 1.75rem; font-weight: bold;"><span id="battInDaily">0.00</span> <span style="font-size: 1.1rem;">kWh</span></div>
+                        <div style="font-size: 1rem; color: #D1D5DB; margin-top: 0.25rem;">当前 <span id="battIn">0.00</span> kW</div>
+                    </div>
+                    <div class="stat-card" style="background: rgba(34, 211, 238, 0.2);">
+                        <div style="font-size: 0.875rem; color: #22D3EE; margin-bottom: 0.5rem;">🔋↑ Batt Out</div>
+                        <div style="font-size: 1.75rem; font-weight: bold;"><span id="battOutDaily">0.00</span> <span style="font-size: 1.1rem;">kWh</span></div>
+                        <div style="font-size: 1rem; color: #D1D5DB; margin-top: 0.25rem;">当前 <span id="battOut">0.00</span> kW</div>
+                    </div>
+                    <div class="stat-card" style="background: rgba(96, 165, 250, 0.2);">
+                        <div style="font-size: 0.875rem; color: #60A5FA; margin-bottom: 0.5rem;">⬇️ Grid In</div>
+                        <div style="font-size: 1.75rem; font-weight: bold;"><span id="gridInDaily">0.00</span> <span style="font-size: 1.1rem;">kWh</span></div>
+                        <div style="font-size: 1rem; color: #D1D5DB; margin-top: 0.25rem;">当前 <span id="gridIn">0.00</span> kW</div>
+                    </div>
+                    <div class="stat-card" style="background: rgba(52, 211, 153, 0.2);">
+                        <div style="font-size: 0.875rem; color: #34D399; margin-bottom: 0.5rem;">⬆️ Grid Out</div>
+                        <div style="font-size: 1.75rem; font-weight: bold;"><span id="gridOutDaily">0.00</span> <span style="font-size: 1.1rem;">kWh</span></div>
+                        <div style="font-size: 1rem; color: #D1D5DB; margin-top: 0.25rem;">当前 <span id="gridOut">0.00</span> kW</div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div style="background: rgba(31, 41, 55, 0.5); padding: 1rem; border-radius: 0.5rem; display: flex; align-items: center; gap: 1rem;">
+                        <div class="battery-icon">
+                            <div class="battery-fill" id="batteryFillInv" style="width: 0%;"></div>
+                            <div class="battery-head"></div>
+                        </div>
+                        <div>
+                            <div style="color: #9CA3AF; font-size: 0.875rem;">SOC INV</div>
+                            <div style="font-size: 1.5rem; font-weight: bold;"><span id="socInv">0</span>%</div>
+                        </div>
+                    </div>
+                    <div style="background: rgba(31, 41, 55, 0.5); padding: 1rem; border-radius: 0.5rem; display: flex; align-items: center; gap: 1rem;">
+                        <div class="battery-icon">
+                            <div class="battery-fill" id="batteryFillBms" style="width: 0%;"></div>
+                            <div class="battery-head"></div>
+                        </div>
+                        <div>
+                            <div style="color: #9CA3AF; font-size: 0.875rem;">SOC BMS</div>
+                            <div style="font-size: 1.5rem; font-weight: bold;"><span id="socBms">0</span>%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Tabs -->
+            <div class="card">
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid #374151;">
+                    <button class="tab-button active" onclick="switchTab('sankey-tab')">
+                        ⚡ 能量流向图
+                    </button>
+                    <button class="tab-button" onclick="switchTab('trend-tab')">
+                        📊 今日电量趋势
+                    </button>
+                </div>
+
+                <!-- Sankey Tab -->
+                <div id="sankey-tab" class="tab-content active">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
+                        <h2 style="font-size: 1.125rem; font-weight: 600; color: #D1D5DB;">Sankey Energy Flow</h2>
+                        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; background: rgba(31, 41, 55, 0.5); padding: 0.5rem 1rem; border-radius: 0.5rem;">
+                                <input type="checkbox" id="sankeyModeToggle" style="width: 1rem; height: 1rem; cursor: pointer;">
+                                <span style="font-size: 0.875rem; color: #D1D5DB;">累计电量 (kWh)</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div id="sankey" style="width: 100%; min-height: 400px;"></div>
+                </div>
+
+                <!-- Trend Tab -->
+                <div id="trend-tab" class="tab-content">
+                    <div style="margin-bottom: 1rem;">
+                        <h2 style="font-size: 1.125rem; font-weight: 600; color: #D1D5DB;">Hourly Power Trends</h2>
+                    </div>
+                    <div style="position: relative; height: 350px;">
+                        <canvas id="hourlyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div style="text-align: center; color: #6B7280; font-size: 0.875rem; margin-top: 2rem;">
+                Growatt Solar Monitor - ASP.NET Core
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        let currentData = null;
+        let dailyData = null;
+        let selectedDate = null; // Track selected historical date
+        let hourlyChart = null; // Chart.js instance
+
+        // Tab switching function
+        function switchTab(tabId) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Deactivate all tab buttons
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+            
+            // Show selected tab content
+            document.getElementById(tabId).classList.add('active');
+            
+            // Activate corresponding button
+            const buttons = document.querySelectorAll('.tab-button');
+            if (tabId === 'sankey-tab') {
+                buttons[0].classList.add('active');
+            } else if (tabId === 'trend-tab') {
+                buttons[1].classList.add('active');
+                // Trigger chart resize when switching to trend tab
+                if (hourlyChart) {
+                    setTimeout(() => hourlyChart.resize(), 100);
+                }
+            }
+        }
+
+        // Draw Sankey diagram
+        function drawSankey(data, isDaily = false) {
+            const unit = isDaily ? 'kWh' : 'kW';
+            const container = document.getElementById('sankey');
+            
+            // Force clear container completely
+            console.log('drawSankey called with data:', data, 'isDaily:', isDaily);
+            container.innerHTML = '';
+            
+            const width = container.clientWidth || 800;
+            const height = 400;
+            
+            // Responsive margins - smaller on mobile
+            const isMobile = width < 640;
+            const margin = isMobile 
+                ? { top: 20, right: 40, bottom: 20, left: 40 }
+                : { top: 20, right: 120, bottom: 20, left: 120 };
+            const innerWidth = width - margin.left - margin.right;
+            const innerHeight = height - margin.top - margin.bottom;
+
+            const svg = d3.select('#sankey')
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            const g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Extract values based on mode
+            let solar, battOut, gridIn, battIn, load, gridOut;
+            
+            if (isDaily) {
+                // Daily cumulative data in kWh
+                solar = data.solar_kwh || 0;
+                load = data.load_kwh || 0;
+                battIn = data.battery_charge_kwh || 0;
+                battOut = data.battery_discharge_kwh || 0;
+                gridIn = data.grid_import_kwh || 0;
+                gridOut = data.grid_export_kwh || 0;
+                console.log('Drawing daily Sankey:', { solar, load, battIn, battOut, gridIn, gridOut });
+            } else {
+                // Real-time data in kW
+                solar = data.solar || 0;
+                battOut = data.battery_discharge || 0;
+                gridIn = data.grid_import || 0;
+                battIn = data.battery_charge || 0;
+                load = data.load || 0;
+                gridOut = data.grid_export || 0;
+                console.log('Drawing real-time Sankey:', { solar, load, battIn, battOut, gridIn, gridOut });
+                
+                // For real-time, only show net battery flow (charge OR discharge, not both)
+                let batteryNet = battIn - battOut;
+                if (batteryNet > 0) {
+                    // Net charging - only show battIn
+                    battOut = 0;
+                    battIn = batteryNet;
+                } else if (batteryNet < 0) {
+                    // Net discharging - only show battOut
+                    battIn = 0;
+                    battOut = -batteryNet;
+                } else {
+                    // No net battery flow
+                    battIn = 0;
+                    battOut = 0;
+                }
+            }
+
+            // Calculate totals
+            const totalInput = solar + battOut + gridIn;
+            const totalOutput = load + battIn + gridOut;
+
+            if (totalInput < 0.01 && totalOutput < 0.01) {
+                g.append('text')
+                    .attr('x', innerWidth / 2)
+                    .attr('y', innerHeight / 2)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#9CA3AF')
+                    .attr('font-size', '18px')
+                    .text('🌙 暂无能量流动');
+                return;
+            }
+
+            // Node configuration - responsive for mobile
+            const nodeWidth = isMobile ? 70 : 90;
+            const minNodeHeight = isMobile ? 35 : 40;
+            const maxNodeHeight = innerHeight * 0.8;
+            const nodeSpacing = isMobile ? 8 : 10;
+
+            // Calculate node heights based on values
+            const calculateNodeHeights = (values, total) => {
+                if (total <= 0) {
+                    return values.map(() => minNodeHeight);
+                }
+                const availableHeight = maxNodeHeight - (values.length - 1) * nodeSpacing;
+                return values.map(v => {
+                    const ratio = v / total;
+                    return Math.max(minNodeHeight, ratio * availableHeight);
+                });
+            };
+
+            // Calculate heights for left and right sides
+            const leftValues = [solar, battOut, gridIn];
+            const rightValues = [load, battIn, gridOut];
+            const leftHeights = calculateNodeHeights(leftValues, totalInput);
+            const rightHeights = calculateNodeHeights(rightValues, totalOutput);
+
+            // Calculate vertical positions to center nodes
+            const leftTotalHeight = leftHeights.reduce((a, b) => a + b, 0) + nodeSpacing * 2;
+            const rightTotalHeight = rightHeights.reduce((a, b) => a + b, 0) + nodeSpacing * 2;
+            const leftStartY = (innerHeight - leftTotalHeight) / 2;
+            const rightStartY = (innerHeight - rightTotalHeight) / 2;
+
+            // Define nodes with dynamic heights
+            const nodes = [
+                // Left side (inputs/sources)
+                { id: 'solar', x: 0, y: leftStartY, height: leftHeights[0], value: solar, label: 'Solar', color: '#FCD34D' },
+                { id: 'battOut', x: 0, y: leftStartY + leftHeights[0] + nodeSpacing, height: leftHeights[1], value: battOut, label: 'Batt Discharge', color: '#22D3EE' },
+                { id: 'gridIn', x: 0, y: leftStartY + leftHeights[0] + leftHeights[1] + nodeSpacing * 2, height: leftHeights[2], value: gridIn, label: 'Grid Import', color: '#60A5FA' },
+                
+                // Right side (outputs/destinations)
+                { id: 'load', x: innerWidth - nodeWidth, y: rightStartY, height: rightHeights[0], value: load, label: 'Load', color: '#A78BFA' },
+                { id: 'battIn', x: innerWidth - nodeWidth, y: rightStartY + rightHeights[0] + nodeSpacing, height: rightHeights[1], value: battIn, label: 'Batt Charge', color: '#22D3EE' },
+                { id: 'gridOut', x: innerWidth - nodeWidth, y: rightStartY + rightHeights[0] + rightHeights[1] + nodeSpacing * 2, height: rightHeights[2], value: gridOut, label: 'Grid Export', color: '#34D399' }
+            ];
+
+            // Calculate flow proportions
+            const links = [];
+            
+            if (totalOutput > 0) {
+                // Energy balance approach for cumulative daily data
+                // We need to determine how solar and grid are distributed
+                
+                let solarToBatt = 0;
+                let solarToLoad = 0;
+                let solarToGrid = 0;
+                let gridToBatt = 0;
+                let gridToLoad = 0;
+                let battToLoad = 0;
+                let battToGrid = 0;
+                
+                // For real-time mode, use simple direct flow visualization
+                // Solar → Load (priority), then Battery, then Grid
+                // Battery/Grid → Load if solar insufficient
+                
+                if (!isDaily) {
+                    // Real-time: Show actual power flows directly
+                    if (solar > 0 && load > 0) {
+                        solarToLoad = Math.min(solar, load);
+                    }
+                    
+                    const solarRemaining = solar - solarToLoad;
+                    const loadRemaining = load - solarToLoad;
+                    
+                    // Remaining solar charges battery or exports to grid
+                    if (solarRemaining > 0) {
+                        if (battIn > 0) {
+                            solarToBatt = Math.min(solarRemaining, battIn);
+                            const stillRemaining = solarRemaining - solarToBatt;
+                            if (stillRemaining > 0 && gridOut > 0) {
+                                solarToGrid = Math.min(stillRemaining, gridOut);
+                            }
+                        } else if (gridOut > 0) {
+                            solarToGrid = Math.min(solarRemaining, gridOut);
+                        }
+                    }
+                    
+                    // If load not fully covered by solar, use battery or grid
+                    if (loadRemaining > 0) {
+                        if (battOut > 0) {
+                            battToLoad = Math.min(battOut, loadRemaining);
+                            const stillLoadRemaining = loadRemaining - battToLoad;
+                            if (stillLoadRemaining > 0 && gridIn > 0) {
+                                gridToLoad = Math.min(gridIn, stillLoadRemaining);
+                            }
+                        } else if (gridIn > 0) {
+                            gridToLoad = Math.min(gridIn, loadRemaining);
+                        }
+                    }
+                    
+                    // Remaining battery discharge exports to grid
+                    const battOutRemaining = battOut - battToLoad;
+                    if (battOutRemaining > 0 && gridOut > 0) {
+                        battToGrid = Math.min(battOutRemaining, gridOut - solarToGrid);
+                    }
+                    
+                    // Remaining grid power charges battery
+                    const gridInRemaining = gridIn - gridToLoad;
+                    if (gridInRemaining > 0 && battIn > 0) {
+                        gridToBatt = Math.min(gridInRemaining, battIn - solarToBatt);
+                    }
+                } else {
+                    // Daily cumulative mode - use energy balance calculation
+                    
+                    // For daily data, we have total kWh for each metric
+                    // Based on actual observation: Grid charges battery during the day
+                    
+                    // Step 1: Calculate Grid to Battery charging
+                    // If both gridIn and battIn exist, grid is contributing to battery charge
+                    if (gridIn > 0 && battIn > 0) {
+                        // Grid can charge battery and/or supply load
+                        // Strategy: Allocate grid power to both battery and load based on ratios
+                        
+                        // First, see how much battery charge solar alone could provide
+                        // Assume solar prioritizes load first
+                        const solarForLoad = Math.min(solar, load);
+                        const solarRemaining = solar - solarForLoad;
+                        
+                        // Solar excess can charge battery
+                        const solarCanChargeBatt = Math.min(solarRemaining, battIn);
+                        
+                        // If battery charged more than solar excess, grid must have charged it
+                        if (battIn > solarCanChargeBatt) {
+                            gridToBatt = Math.min(gridIn, battIn - solarCanChargeBatt);
+                        }
+                        
+                        solarToBatt = solarCanChargeBatt;
+                        solarToLoad = solarForLoad;
+                        
+                        // Remaining grid goes to load
+                        const gridRemaining = gridIn - gridToBatt;
+                        const loadRemaining = load - solarToLoad;
+                        if (gridRemaining > 0 && loadRemaining > 0) {
+                            gridToLoad = Math.min(gridRemaining, loadRemaining);
+                        }
+                    } else if (battIn > 0 && solar > 0) {
+                        // Only solar available to charge battery
+                        const solarForLoad = Math.min(solar, load);
+                        solarToLoad = solarForLoad;
+                        solarToBatt = Math.min(solar - solarForLoad, battIn);
+                    } else {
+                        // No battery charging, simple flow
+                        solarToLoad = Math.min(solar, load);
+                        if (gridIn > 0) {
+                            gridToLoad = Math.min(gridIn, load - solarToLoad);
+                        }
+                    }
+                    
+                    // Step 2: Solar export to grid
+                    const solarRemaining = solar - solarToBatt - solarToLoad;
+                    if (solarRemaining > 0 && gridOut > 0) {
+                        solarToGrid = Math.min(solarRemaining, gridOut);
+                    }
+                    
+                    // Step 3: Battery discharge
+                    const loadStillRemaining = load - solarToLoad - gridToLoad;
+                    if (battOut > 0 && loadStillRemaining > 0) {
+                        battToLoad = Math.min(battOut, loadStillRemaining);
+                    }
+                    
+                    // Remaining battery discharge exports to grid
+                    const battOutRemaining = battOut - battToLoad;
+                    if (battOutRemaining > 0 && gridOut > 0) {
+                        battToGrid = Math.min(battOutRemaining, gridOut - solarToGrid);
+                    }
+                }
+                
+                // Create links based on calculated flows
+                if (solarToBatt > 0.001) {
+                    links.push({ source: 'solar', target: 'battIn', value: solarToBatt });
+                }
+                if (solarToLoad > 0.001) {
+                    links.push({ source: 'solar', target: 'load', value: solarToLoad });
+                }
+                if (solarToGrid > 0.001) {
+                    links.push({ source: 'solar', target: 'gridOut', value: solarToGrid });
+                }
+                
+                if (gridToBatt > 0.001) {
+                    links.push({ source: 'gridIn', target: 'battIn', value: gridToBatt });
+                }
+                if (gridToLoad > 0.001) {
+                    links.push({ source: 'gridIn', target: 'load', value: gridToLoad });
+                }
+                
+                if (battToLoad > 0.001) {
+                    links.push({ source: 'battOut', target: 'load', value: battToLoad });
+                }
+                if (battToGrid > 0.001) {
+                    links.push({ source: 'battOut', target: 'gridOut', value: battToGrid });
+                }
+                
+                console.log('Energy flows:', {
+                    mode: isDaily ? 'Daily累计' : 'Real-time实时',
+                    inputs: {
+                        solar: solar.toFixed(1),
+                        battOut: battOut.toFixed(1),
+                        gridIn: gridIn.toFixed(1)
+                    },
+                    outputs: {
+                        load: load.toFixed(1),
+                        battIn: battIn.toFixed(1),
+                        gridOut: gridOut.toFixed(1)
+                    },
+                    flows: {
+                        'Solar→Batt': solarToBatt.toFixed(1),
+                        'Solar→Load': solarToLoad.toFixed(1),
+                        'Solar→Grid': solarToGrid.toFixed(1),
+                        'Grid→Batt': gridToBatt.toFixed(1),
+                        'Grid→Load': gridToLoad.toFixed(1),
+                        'Batt→Load': battToLoad.toFixed(1),
+                        'Batt→Grid': battToGrid.toFixed(1)
+                    }
+                });
+            }
+
+            // Create gradients for links
+            const defs = svg.append('defs');
+            links.forEach((link, i) => {
+                const sourceNode = nodes.find(n => n.id === link.source);
+                const gradient = defs.append('linearGradient')
+                    .attr('id', `gradient-${i}`)
+                    .attr('x1', '0%')
+                    .attr('x2', '100%');
+                
+                gradient.append('stop')
+                    .attr('offset', '0%')
+                    .attr('stop-color', sourceNode.color)
+                    .attr('stop-opacity', 0.8);
+                
+                gradient.append('stop')
+                    .attr('offset', '100%')
+                    .attr('stop-color', sourceNode.color)
+                    .attr('stop-opacity', 0.3);
+            });
+
+            // Draw links (flows)
+            const maxLinkValue = d3.max(links, d => d.value) || 1;
+            
+            links.forEach((link, i) => {
+                const sourceNode = nodes.find(n => n.id === link.source);
+                const targetNode = nodes.find(n => n.id === link.target);
+                
+                if (!sourceNode || !targetNode || link.value < 0.001) return;
+
+                const linkWidth = Math.max(2, (link.value / maxLinkValue) * Math.min(sourceNode.height, targetNode.height) * 0.8);
+                
+                const x0 = sourceNode.x + nodeWidth;
+                const y0 = sourceNode.y + sourceNode.height / 2;
+                const x1 = targetNode.x;
+                const y1 = targetNode.y + targetNode.height / 2;
+
+                const midX = (x0 + x1) / 2;
+
+                const path = `
+                    M ${x0},${y0 - linkWidth/2}
+                    C ${midX},${y0 - linkWidth/2} ${midX},${y1 - linkWidth/2} ${x1},${y1 - linkWidth/2}
+                    L ${x1},${y1 + linkWidth/2}
+                    C ${midX},${y1 + linkWidth/2} ${midX},${y0 + linkWidth/2} ${x0},${y0 + linkWidth/2}
+                    Z
+                `;
+
+                g.append('path')
+                    .attr('d', path)
+                    .attr('fill', `url(#gradient-${i})`)
+                    .attr('opacity', 0.75);
+                
+                // Add label on the flow path
+                const labelX = midX;
+                const labelY = (y0 + y1) / 2;
+                const labelFontSize = isMobile ? '10px' : '12px';
+                
+                // Only show label if link is wide enough
+                if (linkWidth >= 8) {
+                    g.append('text')
+                        .attr('x', labelX)
+                        .attr('y', labelY)
+                        .attr('text-anchor', 'middle')
+                        .attr('dominant-baseline', 'middle')
+                        .attr('fill', 'white')
+                        .attr('font-size', labelFontSize)
+                        .attr('font-weight', 'bold')
+                        .attr('opacity', 0.9)
+                        .style('text-shadow', '1px 1px 2px rgba(0,0,0,0.8)')
+                        .text(`${link.value.toFixed(1)} ${unit}`);
+                }
+            });
+
+            // Draw nodes - always draw all nodes even if value is 0
+            nodes.forEach(node => {
+                const nodeG = g.append('g')
+                    .attr('transform', `translate(${node.x},${node.y})`);
+
+                // Node rectangle - dimmed if value is 0
+                const opacity = node.value > 0 ? 0.95 : 0.3;
+                nodeG.append('rect')
+                    .attr('width', nodeWidth)
+                    .attr('height', node.height)
+                    .attr('rx', 8)
+                    .attr('fill', node.color)
+                    .attr('opacity', opacity);
+
+                // Node label
+                const textOpacity = node.value > 0 ? 1.0 : 0.5;
+                const labelFontSize = isMobile 
+                    ? (node.height < 40 ? '9px' : '10px')
+                    : (node.height < 50 ? '10px' : '12px');
+                nodeG.append('text')
+                    .attr('x', nodeWidth / 2)
+                    .attr('y', node.height / 2 - (isMobile ? 6 : (node.height < 50 ? 8 : 10)))
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', 'white')
+                    .attr('font-size', labelFontSize)
+                    .attr('font-weight', 'bold')
+                    .attr('opacity', textOpacity)
+                    .text(node.label);
+
+                // Node value
+                const valueFontSize = isMobile
+                    ? (node.height < 40 ? '10px' : '11px')
+                    : (node.height < 50 ? '12px' : '14px');
+                nodeG.append('text')
+                    .attr('x', nodeWidth / 2)
+                    .attr('y', node.height / 2 + (isMobile ? 4 : (node.height < 50 ? 5 : 8)))
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', 'white')
+                    .attr('font-size', valueFontSize)
+                    .attr('font-weight', 'bold')
+                    .attr('opacity', textOpacity)
+                    .text(`${node.value.toFixed(2)} ${unit}`);
+
+                // Percentage
+                const total = ['solar', 'battOut', 'gridIn'].includes(node.id) ? totalInput : totalOutput;
+                const showPercentage = isMobile ? node.height >= 50 : node.height >= 60;
+                if (total > 0 && node.value > 0 && showPercentage) {
+                    const percentage = (node.value / total * 100).toFixed(1);
+                    nodeG.append('text')
+                        .attr('x', nodeWidth / 2)
+                        .attr('y', node.height / 2 + (isMobile ? 18 : 24))
+                        .attr('text-anchor', 'middle')
+                        .attr('fill', 'rgba(255,255,255,0.8)')
+                        .attr('font-size', isMobile ? '9px' : '11px')
+                        .text(`(${percentage}%)`);
+                }
+            });
+        }
+
+        // Fetch historical totals and chart data from Growatt API
+        async function fetchHistoricalData(date) {
+            try {
+                console.log('========================================');
+                console.log('fetchHistoricalData() CALLED');
+                console.log('Fetching historical data for:', date);
+                console.log('========================================');
+                
+                // Fetch totals for the date
+                const totalsResponse = await fetch(`${API_BASE}/api/totals?date=${date}`);
+                const totalsData = await totalsResponse.json();
+                
+                // Fetch hourly chart for the date
+                const chartResponse = await fetch(`${API_BASE}/api/chart/hourly?date=${date}`);
+                const chartData = await chartResponse.json();
+                
+                console.log('API Response - Historical totals:', totalsData);
+                console.log('API Response - Historical chart:', chartData);
+                
+                // Store selected date
+                selectedDate = date;
+                
+                // Convert totals data to daily data format
+                dailyData = {
+                    date: totalsData.date,
+                    solar_kwh: totalsData.today.solar_kwh,
+                    load_kwh: totalsData.today.load_kwh,
+                    grid_export_kwh: totalsData.today.grid_export_kwh,
+                    grid_import_kwh: totalsData.today.grid_import_kwh,
+                    battery_charge_kwh: totalsData.today.battery_charge_kwh,
+                    battery_discharge_kwh: totalsData.today.battery_discharge_kwh
+                };
+                
+                console.log('Updated dailyData for Sankey:', dailyData);
+                
+                // Update display
+                updateDailyValues(dailyData);
+                console.log('Daily values updated in UI');
+                
+                // Update timestamp with date
+                const dateNote = new Date(date).toLocaleDateString('zh-CN');
+                document.getElementById('timestamp').textContent = `历史数据: ${dateNote}`;
+                console.log('Timestamp updated to:', `历史数据: ${dateNote}`);
+                
+                // Force cumulative mode for historical view and disable toggle
+                const toggle = document.getElementById('sankeyModeToggle');
+                toggle.checked = true;
+                toggle.disabled = true; // Disable checkbox for historical dates
+                console.log('Checkbox checked and disabled');
+                
+                console.log('>>> About to call drawSankey with dailyData:', dailyData);
+                drawSankey(dailyData, true);
+                console.log('>>> drawSankey completed');
+                
+                // Update hourly chart with historical data
+                if (chartData && chartData.hours) {
+                    updateHourlyChart(chartData);
+                    console.log('Hourly chart updated');
+                }
+                
+                console.log('========================================');
+                console.log('fetchHistoricalData() COMPLETED');
+                console.log('========================================');
+                
+            } catch (error) {
+                console.error('========================================');
+                console.error('ERROR in fetchHistoricalData:');
+                console.error('Error:', error);
+                console.error('Stack:', error.stack);
+                console.error('========================================');
+                alert('获取历史数据失败: ' + error.message);
+            }
+        }
+
+        // Update hourly chart with new data
+        function updateHourlyChart(chartData) {
+            if (!hourlyChart) return;
+            
+            const hours = chartData.hours.map(h => h.hour);
+            const labels = hours.map(h => `${h}:00`);
+            
+            hourlyChart.data.labels = labels;
+            hourlyChart.data.datasets[0].data = chartData.hours.map(h => h.solar);
+            hourlyChart.data.datasets[1].data = chartData.hours.map(h => h.load);
+            hourlyChart.data.datasets[2].data = chartData.hours.map(h => h.battery_discharge);
+            hourlyChart.data.datasets[3].data = chartData.hours.map(h => h.battery_charge);
+            hourlyChart.data.datasets[4].data = chartData.hours.map(h => h.grid_export);
+            hourlyChart.data.datasets[5].data = chartData.hours.map(h => h.grid_import);
+            
+            hourlyChart.update();
+        }
+
+        // Fetch daily data (from CSV logs)
+        function fetchDailyData(date = null) {
+            // Get local date if not provided
+            let targetDate;
+            if (date) {
+                targetDate = date;
+            } else {
+                const now = new Date();
+                const year = now.getFullYear();
+                const month = String(now.getMonth() + 1).padStart(2, '0');
+                const day = String(now.getDate()).padStart(2, '0');
+                targetDate = `${year}-${month}-${day}`;
+            }
+            fetch(API_BASE + `/api/daily?date=${targetDate}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Daily data received for', targetDate, ':', data);
+                    
+                    if (date) {
+                        // Historical date selected - update display with historical data
+                        selectedDate = targetDate;
+                        dailyData = data;
+                        updateDailyValues(data);
+                        
+                        // Update stat cards with historical data note
+                        const dateNote = new Date(targetDate).toLocaleDateString('zh-CN');
+                        document.getElementById('timestamp').textContent = `历史数据: ${dateNote}`;
+                        
+                        // For historical dates, always use cumulative mode (dailyData only has totals)
+                        // But respect the checkbox state for display preference
+                        const toggle = document.getElementById('sankeyModeToggle');
+                        if (!toggle.checked) {
+                            // If user prefers real-time mode, auto-check it for historical view
+                            toggle.checked = true;
+                        }
+                        drawSankey(dailyData, true);
+                    } else {
+                        // Today's data - normal behavior
+                        selectedDate = null;
+                        dailyData = data;
+                        updateDailyValues(data);
+                        
+                        // If toggle is checked, redraw with daily data
+                        const toggle = document.getElementById('sankeyModeToggle');
+                        if (toggle.checked) {
+                            drawSankey(dailyData, true);
+                        }
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to fetch daily data:', err);
+                    alert(`获取${date ? '历史' : '今日'}数据失败: ${err.message}`);
+                });
+        }
+
+        // Fetch today's totals from Growatt Web API
+        function fetchTodayTotals() {
+            // Don't fetch today's totals if viewing historical data
+            if (selectedDate) {
+                console.log('Skipping totals fetch - viewing historical date:', selectedDate);
+                return;
+            }
+            
+            console.log('Fetching today totals from:', API_BASE + '/api/totals');
+            
+            fetch(API_BASE + '/api/totals')
+                .then(response => {
+                    console.log('Totals response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Totals from Growatt API:', data);
+                    
+                    // Convert to dailyData format for Sankey diagram
+                    const totals = {
+                        date: new Date().toISOString().split('T')[0],
+                        solar_kwh: data.today.solar_kwh || 0,
+                        load_kwh: data.today.load_kwh || 0,
+                        grid_export_kwh: data.today.grid_export_kwh || 0,
+                        grid_import_kwh: data.today.grid_import_kwh || 0,
+                        battery_charge_kwh: data.today.battery_charge_kwh || 0,
+                        battery_discharge_kwh: data.today.battery_discharge_kwh || 0,
+                        count: 0
+                    };
+                    
+                    dailyData = totals;
+                    updateDailyValues(totals);
+                    
+                    // If toggle is checked, redraw with API totals
+                    const toggle = document.getElementById('sankeyModeToggle');
+                    if (toggle.checked) {
+                        drawSankey(dailyData, true);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to fetch totals from Growatt API:', err);
+                    alert('获取今日累计数据失败: ' + err.message + '\n请确保已登录并重试。');
+                    // Uncheck the toggle on error
+                    const toggle = document.getElementById('sankeyModeToggle');
+                    if (toggle) {
+                        toggle.checked = false;
+                    }
+                });
+        }
+
+        // Update data
+        function updateData() {
+            // Skip real-time updates if viewing historical data
+            if (selectedDate) {
+                console.log('Skipping real-time update - viewing historical date:', selectedDate);
+                return;
+            }
+            
+            console.log('Fetching current data at', new Date().toLocaleString('zh-CN'));
+            
+            fetch(API_BASE + '/api/current')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Current data received:', data);
+                    currentData = data;
+
+                    // Update status
+                    const statusEl = document.getElementById('status');
+                    // If we have a timestamp, we have valid data
+                    if (data.connected && data.timestamp) {
+                        statusEl.textContent = '● 已连接';
+                        statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+                        statusEl.style.color = '#86EFAC';
+                    } else if (!data.timestamp) {
+                        // No data yet, still connecting
+                        statusEl.textContent = '○ 连接中...';
+                        statusEl.style.background = 'rgba(234, 179, 8, 0.2)';
+                        statusEl.style.color = '#FDE047';
+                    } else {
+                        statusEl.textContent = '○ 未连接';
+                        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+                        statusEl.style.color = '#FCA5A5';
+                    }
+
+                    // Update timestamp
+                    if (data.timestamp) {
+                        const date = new Date(data.timestamp);
+                        const day = String(date.getDate()).padStart(2, '0');
+                        const month = String(date.getMonth() + 1).padStart(2, '0');
+                        const year = date.getFullYear();
+                        const timeStr = date.toLocaleTimeString('zh-CN');
+                        document.getElementById('timestamp').textContent = 
+                            `最后更新: ${day}/${month}/${year} ${timeStr}`;
+                    }
+
+                    // Update values
+                    document.getElementById('solar').textContent = (data.solar || 0).toFixed(2);
+                    document.getElementById('load').textContent = (data.load || 0).toFixed(2);
+                    document.getElementById('battIn').textContent = (data.battery_charge || 0).toFixed(2);
+                    document.getElementById('battOut').textContent = (data.battery_discharge || 0).toFixed(2);
+                    document.getElementById('gridIn').textContent = (data.grid_import || 0).toFixed(2);
+                    document.getElementById('gridOut').textContent = (data.grid_export || 0).toFixed(2);
+
+                    // Update SOC
+                    const socInv = data.soc_inv || 0;
+                    const socBms = data.soc_bms || 0;
+                    document.getElementById('socInv').textContent = socInv;
+                    document.getElementById('socBms').textContent = socBms;
+                    document.getElementById('batteryFillInv').style.width = socInv + '%';
+                    document.getElementById('batteryFillBms').style.width = socBms + '%';
+
+                    // Update battery color based on level
+                    const getColor = (level) => {
+                        if (level >= 30) return '#34D399';
+                        if (level >= 10) return '#F59E0B';
+                        return '#EF4444';
+                    };
+                    document.getElementById('batteryFillInv').style.background = getColor(socInv);
+                    document.getElementById('batteryFillBms').style.background = getColor(socBms);
+
+                    // Draw Sankey diagram based on toggle state
+                    const toggle = document.getElementById('sankeyModeToggle');
+                    if (toggle.checked && dailyData) {
+                        drawSankey(dailyData, true);
+                    } else {
+                        drawSankey(data, false);
+                    }
+                    
+                    // Fetch today's cumulative data from Growatt Web API (includes battery charge from batChart)
+                    fetchTodayTotals();
+                })
+                .catch(err => {
+                    console.error('Failed to fetch data:', err);
+                    document.getElementById('status').textContent = '○ 错误';
+                });
+        }
+
+        // Update daily cumulative values
+        function updateDailyValues(data) {
+            if (data) {
+                console.log('========================================');
+                console.log('updateDailyValues() called with data:', data);
+                console.log('Updating DOM elements:');
+                console.log('  Solar Daily:', (data.solar_kwh || 0).toFixed(2));
+                console.log('  Load Daily:', (data.load_kwh || 0).toFixed(2));
+                console.log('  Batt In Daily:', (data.battery_charge_kwh || 0).toFixed(2));
+                console.log('  Batt Out Daily:', (data.battery_discharge_kwh || 0).toFixed(2));
+                console.log('  Grid In Daily:', (data.grid_import_kwh || 0).toFixed(2));
+                console.log('  Grid Out Daily:', (data.grid_export_kwh || 0).toFixed(2));
+                
+                document.getElementById('solarDaily').textContent = (data.solar_kwh || 0).toFixed(2);
+                document.getElementById('loadDaily').textContent = (data.load_kwh || 0).toFixed(2);
+                document.getElementById('battInDaily').textContent = (data.battery_charge_kwh || 0).toFixed(2);
+                document.getElementById('battOutDaily').textContent = (data.battery_discharge_kwh || 0).toFixed(2);
+                document.getElementById('gridInDaily').textContent = (data.grid_import_kwh || 0).toFixed(2);
+                document.getElementById('gridOutDaily').textContent = (data.grid_export_kwh || 0).toFixed(2);
+                
+                console.log('DOM elements updated');
+                console.log('========================================');
+            }
+        }
+
+        // Initialize after DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get today's date in local timezone (not UTC)
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const today = `${year}-${month}-${day}`;
+            
+            const datePicker = document.getElementById('historicalDatePicker');
+            const prevDayBtn = document.getElementById('prevDayBtn');
+            const nextDayBtn = document.getElementById('nextDayBtn');
+            const toggleCheckbox = document.getElementById('sankeyModeToggle');
+            
+            console.log('Today date (local):', today); // Debug log
+            console.log('Browser time:', now.toString()); // Debug log
+            
+            if (datePicker) {
+                datePicker.setAttribute('max', today);
+                
+                // Set default value to today without triggering change event
+                datePicker.value = today;
+                console.log('Date picker value set to:', datePicker.value); // Debug log
+                console.log('Date picker max:', datePicker.getAttribute('max')); // Debug log
+                
+                // Date picker event listener
+                datePicker.addEventListener('change', function() {
+                    const selectedDateValue = this.value;
+                    console.log('========================================');
+                    console.log('DATE PICKER CHANGE EVENT TRIGGERED');
+                    console.log('Selected date:', selectedDateValue);
+                    console.log('Today:', today);
+                    console.log('========================================');
+                    
+                    if (selectedDateValue && selectedDateValue !== today) {
+                        // Load historical data from Growatt API
+                        console.log('Loading historical data for:', selectedDateValue);
+                        fetchHistoricalData(selectedDateValue);
+                    } else if (selectedDateValue === today) {
+                        // If user selects today, switch back to real-time mode
+                        console.log('Selected today, switching to real-time mode');
+                        selectedDate = null;
+                        toggleCheckbox.checked = false;
+                        toggleCheckbox.disabled = false; // Re-enable checkbox for today
+                        updateData();
+                    }
+                });
+            }
+            
+            // Previous day button
+            if (prevDayBtn && datePicker) {
+                prevDayBtn.addEventListener('click', function() {
+                    const currentDate = datePicker.value ? new Date(datePicker.value + 'T00:00:00') : new Date(today + 'T00:00:00');
+                    currentDate.setDate(currentDate.getDate() - 1);
+                    const newYear = currentDate.getFullYear();
+                    const newMonth = String(currentDate.getMonth() + 1).padStart(2, '0');
+                    const newDay = String(currentDate.getDate()).padStart(2, '0');
+                    const newDateStr = `${newYear}-${newMonth}-${newDay}`;
+                    datePicker.value = newDateStr;
+                    datePicker.dispatchEvent(new Event('change'));
+                });
+            }
+            
+            // Next day button
+            if (nextDayBtn && datePicker) {
+                nextDayBtn.addEventListener('click', function() {
+                    const currentDate = datePicker.value ? new Date(datePicker.value + 'T00:00:00') : new Date(today + 'T00:00:00');
+                    currentDate.setDate(currentDate.getDate() + 1);
+                    const newYear = currentDate.getFullYear();
+                    const newMonth = String(currentDate.getMonth() + 1).padStart(2, '0');
+                    const newDay = String(currentDate.getDate()).padStart(2, '0');
+                    const newDateStr = `${newYear}-${newMonth}-${newDay}`;
+                    
+                    // Don't allow going beyond today
+                    if (newDateStr <= today) {
+                        datePicker.value = newDateStr;
+                        datePicker.dispatchEvent(new Event('change'));
+                    }
+                });
+            }
+            
+            // Toggle event listener
+            if (toggleCheckbox) {
+                toggleCheckbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        // Cumulative mode - use Growatt Web API totals (includes battery charge)
+                        if (!selectedDate) {
+                            // Today - use Web API totals
+                            fetchTodayTotals();
+                        } else if (dailyData) {
+                            // Historical date - use existing dailyData
+                            drawSankey(dailyData, true);
+                        }
+                    } else if (currentData) {
+                        // Real-time mode
+                        drawSankey(currentData, false);
+                    }
+                });
+            }
+
+            // Fetch and render hourly chart
+            async function fetchHourlyChart() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/chart/hourly`);
+                    const data = await response.json();
+
+                    const hours = data.hours.map(h => h.hour);
+                    const labels = hours.map(h => `${h}:00`);
+
+                    const ctx = document.getElementById('hourlyChart').getContext('2d');
+
+                    // Destroy existing chart if it exists
+                    if (hourlyChart) {
+                        hourlyChart.destroy();
+                    }
+
+                    hourlyChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                {
+                                    label: '太阳能 (Solar)',
+                                    data: data.hours.map(h => h.solar),
+                                    borderColor: '#FBBF24',
+                                    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+                                    fill: true,
+                                    tension: 0.4
+                                },
+                                {
+                                    label: '负载 (Load)',
+                                    data: data.hours.map(h => h.load),
+                                    borderColor: '#EF4444',
+                                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                    fill: true,
+                                    tension: 0.4
+                                },
+                                {
+                                    label: '电池放电 (Battery Out)',
+                                    data: data.hours.map(h => h.battery_discharge),
+                                    borderColor: '#10B981',
+                                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                    fill: true,
+                                    tension: 0.4
+                                },
+                                {
+                                    label: '电池充电 (Battery In)',
+                                    data: data.hours.map(h => h.battery_charge),
+                                    borderColor: '#34D399',
+                                    backgroundColor: 'rgba(52, 211, 153, 0.1)',
+                                    fill: true,
+                                    tension: 0.4
+                                },
+                                {
+                                    label: '电网输出 (Grid Export)',
+                                    data: data.hours.map(h => h.grid_export),
+                                    borderColor: '#3B82F6',
+                                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                    fill: true,
+                                    tension: 0.4
+                                },
+                                {
+                                    label: '电网输入 (Grid Import)',
+                                    data: data.hours.map(h => h.grid_import),
+                                    borderColor: '#8B5CF6',
+                                    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                                    fill: true,
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'top',
+                                    labels: {
+                                        color: '#D1D5DB',
+                                        font: {
+                                            size: 11
+                                        },
+                                        boxWidth: 12
+                                    }
+                                },
+                                tooltip: {
+                                    mode: 'index',
+                                    intersect: false,
+                                    backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                                    titleColor: '#F3F4F6',
+                                    bodyColor: '#D1D5DB',
+                                    borderColor: '#374151',
+                                    borderWidth: 1,
+                                    callbacks: {
+                                        label: function(context) {
+                                            return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} kW`;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    grid: {
+                                        color: 'rgba(75, 85, 99, 0.3)'
+                                    },
+                                    ticks: {
+                                        color: '#9CA3AF'
+                                    }
+                                },
+                                y: {
+                                    beginAtZero: true,
+                                    grid: {
+                                        color: 'rgba(75, 85, 99, 0.3)'
+                                    },
+                                    ticks: {
+                                        color: '#9CA3AF',
+                                        callback: function(value) {
+                                            return value.toFixed(1) + ' kW';
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    console.log('Hourly chart updated');
+                } catch (error) {
+                    console.error('Error fetching hourly chart:', error);
+                }
+            }
+            
+            // Check login status on page load
+            async function checkLoginStatus() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/auth/status`);
+                    const data = await response.json();
+                    
+                    if (!data.logged_in) {
+                        // Not logged in, redirect to login page
+                        window.location.href = '/login.html';
+                        return false;
+                    }
+                    return true;
+                } catch (error) {
+                    console.error('Failed to check login status:', error);
+                    // On error, redirect to login
+                    window.location.href = '/login.html';
+                    return false;
+                }
+            }
+
+            // Hamburger menu toggle
+            document.getElementById('hamburgerIcon').addEventListener('click', (e) => {
+                e.stopPropagation();
+                const dropdown = document.getElementById('menuDropdown');
+                dropdown.classList.toggle('show');
+            });
+
+            // Close menu when clicking outside
+            document.addEventListener('click', (e) => {
+                const menu = document.querySelector('.hamburger-menu');
+                const dropdown = document.getElementById('menuDropdown');
+                if (!menu.contains(e.target)) {
+                    dropdown.classList.remove('show');
+                }
+            });
+
+            // Refresh today data handler
+            document.getElementById('refreshTodayBtn').addEventListener('click', async () => {
+                const dropdown = document.getElementById('menuDropdown');
+                dropdown.classList.remove('show');
+
+                // Get the currently selected date from date picker or selectedDate variable
+                const datePicker = document.getElementById('historicalDatePicker');
+                const currentDate = datePicker.value || selectedDate;
+                
+                if (!currentDate) {
+                    alert('请先选择一个日期');
+                    return;
+                }
+
+                const dateDisplay = new Date(currentDate).toLocaleDateString('zh-CN');
+                if (!confirm(`确定要重新从 Web API 读取 ${dateDisplay} 的电量数据吗？这将替换已保存的数据。`)) {
+                    return;
+                }
+
+                try {
+                    // Show loading state
+                    const originalText = document.getElementById('timestamp').textContent;
+                    document.getElementById('timestamp').textContent = '正在刷新数据...';
+                    
+                    const response = await fetch(`${API_BASE}/api/totals/refresh?date=${currentDate}`, {
+                        method: 'POST'
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log('Refresh result:', result);
+                        
+                        // Refresh the display with new data (don't reload page)
+                        await fetchHistoricalData(currentDate);
+                    } else {
+                        const error = await response.json();
+                        document.getElementById('timestamp').textContent = originalText;
+                        alert('刷新失败: ' + (error.error || error.message || '未知错误'));
+                    }
+                } catch (error) {
+                    console.error('Refresh error:', error);
+                    alert('刷新失败: ' + error.message);
+                }
+            });
+
+            // Logout handler
+            document.getElementById('logoutMenuItem').addEventListener('click', async () => {
+                const dropdown = document.getElementById('menuDropdown');
+                dropdown.classList.remove('show');
+                
+                if (confirm('确定要退出登录吗？')) {
+                    try {
+                        const response = await fetch(`${API_BASE}/api/auth/logout`, {
+                            method: 'POST'
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            window.location.href = '/login.html';
+                        } else {
+                            alert('退出登录失败: ' + result.message);
+                        }
+                    } catch (error) {
+                        console.error('Logout error:', error);
+                        alert('退出登录失败');
+                    }
+                }
+            });
+            
+            // Check login before initializing
+            checkLoginStatus().then((isLoggedIn) => {
+                if (!isLoggedIn) return;
+                
+                // Initial load
+                updateData();
+                fetchHourlyChart();
+                
+                // Update every 5 minutes (300000ms) using setInterval
+                const updateInterval = setInterval(updateData, 300000);
+                const chartInterval = setInterval(fetchHourlyChart, 300000); // Update chart every 5 minutes
+                
+                // Handle page visibility changes - refresh immediately when page becomes visible
+                document.addEventListener('visibilitychange', function() {
+                    if (!document.hidden) {
+                        console.log('Page became visible - refreshing data');
+                        updateData();
+                        fetchHourlyChart();
+                    }
+                });
+                
+                // Also update when window gains focus
+                window.addEventListener('focus', function() {
+                    console.log('Window focused - refreshing data');
+                    updateData();
+                });
+                
+                // Redraw Sankey on window resize
+                window.addEventListener('resize', () => {
+                    if (toggleCheckbox && toggleCheckbox.checked && dailyData) {
+                        drawSankey(dailyData, true);
+                    } else if (currentData) {
+                        drawSankey(currentData, false);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

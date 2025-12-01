@@ -1,0 +1,42 @@
+# 测试脚本示例
+# 请复制此文件并重命名为 test-api.ps1，然后填入您的实际账户信息
+
+param(
+    [string]$Username = "your-username",
+    [string]$Password = "your-password",
+    [string]$BaseUrl = "http://localhost:5000"
+)
+
+Write-Host "Testing Growatt Monitor API..." -ForegroundColor Cyan
+
+# 登录测试
+Write-Host "`n1. Testing login..." -ForegroundColor Yellow
+$loginResponse = Invoke-RestMethod -Uri "$BaseUrl/api/auth/login" `
+    -Method POST `
+    -ContentType "application/json" `
+    -Body (@{
+        username = $Username
+        password = $Password
+        rememberMe = $true
+    } | ConvertTo-Json) `
+    -SessionVariable session
+
+Write-Host "Login response: $($loginResponse | ConvertTo-Json)" -ForegroundColor Green
+
+# 获取当前数据
+Write-Host "`n2. Testing current data..." -ForegroundColor Yellow
+$currentData = Invoke-RestMethod -Uri "$BaseUrl/api/current" `
+    -Method GET `
+    -WebSession $session
+
+Write-Host "Current data: $($currentData | ConvertTo-Json)" -ForegroundColor Green
+
+# 获取今日汇总
+Write-Host "`n3. Testing daily totals..." -ForegroundColor Yellow
+$totals = Invoke-RestMethod -Uri "$BaseUrl/api/totals" `
+    -Method GET `
+    -WebSession $session
+
+Write-Host "Totals: $($totals | ConvertTo-Json)" -ForegroundColor Green
+
+Write-Host "`nAll tests completed!" -ForegroundColor Cyan

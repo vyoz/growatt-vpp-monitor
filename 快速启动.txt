@@ -1,0 +1,91 @@
+# Growatt Monitor .NET 版本启动说明
+
+## 快速启动
+
+### 方法 1：使用启动脚本（推荐）
+
+在 PowerShell 中运行：
+
+```powershell
+cd GrowattMonitor.NET
+.\start.ps1
+```
+
+### 方法 2：直接运行
+
+```powershell
+cd GrowattMonitor.NET
+dotnet restore
+dotnet run
+```
+
+### 方法 3：指定端口运行
+
+```powershell
+dotnet run --urls "http://localhost:5000"
+```
+
+## 首次使用必读
+
+1. **配置逆变器 IP 地址**
+   
+   编辑 `appsettings.json`，修改以下部分：
+   
+   ```json
+   "Growatt": {
+     "Modbus": {
+       "IpAddress": "192.168.1.50",  // 改成你的逆变器 IP
+       "Port": 502,
+       "UnitId": 1
+     }
+   }
+   ```
+
+2. **确保已安装 .NET 8.0 SDK**
+   
+   检查是否已安装：
+   ```powershell
+   dotnet --version
+   ```
+   
+   如果未安装，请访问：https://dotnet.microsoft.com/download
+
+3. **访问应用**
+   
+   启动成功后，打开浏览器访问：
+   - 主页：http://localhost:5000
+   - API 文档（开发模式）：http://localhost:5000/swagger
+
+## 主要功能
+
+- ✅ 实时监控太阳能发电、负载、电网、电池数据
+- ✅ 每 5 秒自动刷新数据
+- ✅ 自动按月归档 CSV 数据到 logs/ 目录
+- ✅ RESTful API 接口
+- ✅ 响应式 Web 界面
+
+## 故障排查
+
+**无法连接逆变器？**
+1. 检查逆变器 IP 地址是否正确
+2. 确保电脑和逆变器在同一网络
+3. 确认逆变器 Modbus TCP 功能已启用
+
+**端口被占用？**
+```powershell
+dotnet run --urls "http://localhost:5001"  # 换个端口
+```
+
+**查看详细日志**
+```powershell
+$env:ASPNETCORE_ENVIRONMENT="Development"
+dotnet run
+```
+
+## 停止服务
+
+在运行窗口中按 `Ctrl + C`
+
+---
+
+详细文档请查看 README.md

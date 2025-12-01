@@ -1,0 +1,21 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "Growatt": {
+    "Modbus": {
+      "IpAddress": "192.168.1.50",
+      "Port": 502,
+      "UnitId": 1
+    },
+    "PollingInterval": 5,
+    "HistorySize": 1000,
+    "LogDirectory": "./logs",
+    "RetryTimeout": 10,
+    "RetryDelay": 0.5
+  }
+}
