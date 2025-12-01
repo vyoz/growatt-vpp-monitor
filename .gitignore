@@ -6,3 +6,4 @@ api_server.pid
 node_modules/
 logs/*
 !logs/.gitkeep
+.env
