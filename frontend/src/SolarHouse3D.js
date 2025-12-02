@@ -70,6 +70,7 @@ const SolarHouse3D = ({
   const cameraRef = useRef(null);
   const batteryGlowMeshRef = useRef(null);
   const animationIdRef = useRef(null);
+  const [renderError, setRenderError] = useState(false);
 
   // 格式化各个功率值
   const solarFormatted = formatPower(solar);
@@ -80,37 +81,59 @@ const SolarHouse3D = ({
   const loadFormatted = formatPower(load);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current) {
+      console.warn('SolarHouse3D: Container ref not available');
+      setRenderError(true);
+      return;
+    }
 
     const container = containerRef.current;
-    const width = container.clientWidth || 900;
-    const height = container.clientHeight || 650;
+    const width = container.clientWidth || container.offsetWidth || 900;
+    const height = container.clientHeight || container.offsetHeight || 650;
 
-    // Scene
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x2d323d);
-    sceneRef.current = scene;
+    if (width === 0 || height === 0) {
+      console.warn('SolarHouse3D: Container has zero size', { width, height });
+      setRenderError(true);
+      return;
+    }
 
-    // Camera - 模型大小调整
-    const aspect = width / height;
-    const viewSize = 6.5;
-    const camera = new THREE.OrthographicCamera(
-      -viewSize * aspect, viewSize * aspect,
-      viewSize, -viewSize,
-      0.1, 1000
-    );
-    camera.position.set(10, 7, 10);
-    camera.lookAt(-2, 0, 0);
-    cameraRef.current = camera;
+    console.log('SolarHouse3D: Initializing', { width, height });
+    setRenderError(false);
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    container.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
+    try {
+      // Scene
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x2d323d);
+      sceneRef.current = scene;
+
+      // Camera - 模型大小调整
+      const aspect = width / height;
+      const viewSize = 6.5;
+      const camera = new THREE.OrthographicCamera(
+        -viewSize * aspect, viewSize * aspect,
+        viewSize, -viewSize,
+        0.1, 1000
+      );
+      camera.position.set(10, 7, 10);
+      camera.lookAt(-2, 0, 0);
+      cameraRef.current = camera;
+
+      // Renderer with error handling
+      let renderer;
+      try {
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(width, height);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+        rendererRef.current = renderer;
+        console.log('SolarHouse3D: WebGL renderer initialized successfully');
+      } catch (error) {
+        console.error('SolarHouse3D: Failed to initialize WebGL renderer', error);
+        setRenderError(true);
+        return;
+      }
 
     // Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
@@ -125,13 +148,25 @@ const SolarHouse3D = ({
     fillLight.position.set(-10, 5, -10);
     scene.add(fillLight);
 
-    // Create Scene
-    createScene(scene, batteryPercent);
+    // Create Scene with error handling
+    try {
+      createScene(scene, batteryPercent);
+      console.log('SolarHouse3D: Scene created successfully');
+    } catch (error) {
+      console.error('SolarHouse3D: Failed to create scene', error);
+      setRenderError(true);
+      return;
+    }
 
-    // Animation
+    // Animation with error handling
     const animate = () => {
-      animationIdRef.current = requestAnimationFrame(animate);
-      renderer.render(scene, camera);
+      try {
+        animationIdRef.current = requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+      } catch (error) {
+        console.error('SolarHouse3D: Animation error', error);
+        cancelAnimationFrame(animationIdRef.current);
+      }
     };
     animate();
 
@@ -150,16 +185,27 @@ const SolarHouse3D = ({
     window.addEventListener('resize', handleResize);
 
     return () => {
+      console.log('SolarHouse3D: Cleaning up');
       window.removeEventListener('resize', handleResize);
       if (animationIdRef.current) {
         cancelAnimationFrame(animationIdRef.current);
       }
-      if (rendererRef.current && container.contains(rendererRef.current.domElement)) {
-        container.removeChild(rendererRef.current.domElement);
+      if (rendererRef.current) {
+        try {
+          if (container && container.contains(rendererRef.current.domElement)) {
+            container.removeChild(rendererRef.current.domElement);
+          }
+          rendererRef.current.dispose();
+        } catch (error) {
+          console.warn('SolarHouse3D: Cleanup error', error);
+        }
       }
-      rendererRef.current?.dispose();
     };
-  }, []);
+  } catch (error) {
+    console.error('SolarHouse3D: Fatal initialization error', error);
+    setRenderError(true);
+  }
+}, []);
 
   // Update battery glow when percent changes
   useEffect(() => {
@@ -532,6 +578,17 @@ const SolarHouse3D = ({
 
   return (
     <div className="relative w-full h-full min-h-[280px]" style={{ background: '#2d323d' }}>
+      {/* Error fallback UI */}
+      {renderError && (
+        <div className="absolute inset-0 flex items-center justify-center z-20">
+          <div className="text-center text-gray-400">
+            <div className="text-4xl mb-2">🏠</div>
+            <div className="text-sm">3D 模型加载中...</div>
+            <div className="text-xs mt-1 opacity-50">如持续显示此消息，请刷新页面</div>
+          </div>
+        </div>
+      )}
+      
       {/* Labels - 自动堆叠，不留空位 */}
       <div className="absolute top-[10px] left-[10px] flex flex-col gap-2 z-10">
         {solar > 0.01 && (
