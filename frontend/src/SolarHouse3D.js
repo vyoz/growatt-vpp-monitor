@@ -543,23 +543,7 @@ const SolarHouse3D = ({
           </div>
         )}
         
-        {gridImport > 0.01 && (
-          <div className="text-white">
-            <div className="text-[10px] text-white/50">Grid In</div>
-            <div className="text-[14px] font-semibold text-blue-400">
-              {gridInFormatted.value} <span className="text-[10px] font-normal opacity-85">{gridInFormatted.unit}</span>
-            </div>
-          </div>
-        )}
         
-        {gridExport > 0.01 && (
-          <div className="text-white">
-            <div className="text-[10px] text-white/50">Grid Out</div>
-            <div className="text-[14px] font-semibold text-green-400">
-              {gridOutFormatted.value} <span className="text-[10px] font-normal opacity-85">{gridOutFormatted.unit}</span>
-            </div>
-          </div>
-        )}
         
         {batteryCharge > 0.01 && (
           <div className="text-white">
@@ -584,6 +568,24 @@ const SolarHouse3D = ({
             <div className="text-[10px] text-white/50">Load</div>
             <div className="text-[14px] font-semibold text-purple-400">
               {loadFormatted.value} <span className="text-[10px] font-normal opacity-85">{loadFormatted.unit}</span>
+            </div>
+          </div>
+        )}
+
+        {gridImport > 0.01 && (
+          <div className="text-white">
+            <div className="text-[10px] text-white/50">Grid In</div>
+            <div className="text-[14px] font-semibold text-blue-400">
+              {gridInFormatted.value} <span className="text-[10px] font-normal opacity-85">{gridInFormatted.unit}</span>
+            </div>
+          </div>
+        )}
+        
+        {gridExport > 0.01 && (
+          <div className="text-white">
+            <div className="text-[10px] text-white/50">Grid Out</div>
+            <div className="text-[14px] font-semibold text-green-400">
+              {gridOutFormatted.value} <span className="text-[10px] font-normal opacity-85">{gridOutFormatted.unit}</span>
             </div>
           </div>
         )}
