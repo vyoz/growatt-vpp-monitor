@@ -194,7 +194,7 @@ const RealtimeSection = ({ currentData, error }) => {
         <div>
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">⚡</span>
-            <span>实时监控</span>
+            <span>实时监控 Realtime</span>
           </h2>
           <p className="text-gray-400 text-xs">
             {data.timestamp ? `最后更新: ${new Date(data.timestamp).toLocaleTimeString('zh-CN')}` : '等待数据...'}
@@ -379,7 +379,7 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
         <div className="flex items-center gap-2">
           <span className="text-xl">📊</span>
           <div>
-            <h2 className="text-lg font-bold text-white">历史统计</h2>
+            <h2 className="text-lg font-bold text-white">历史统计 History</h2>
             <p className="text-gray-400 text-xs">{dateRangeText}</p>
           </div>
         </div>
