@@ -20,31 +20,26 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
   } = data || {};
 
   // 计算电池净值：避免同时显示充电和放电
-  // 如果有 battery_net，用它来决定方向
-  // 否则用 battery_charge 和 battery_discharge 的差值
   let batteryIn = 0;
   let batteryOut = 0;
   
   if (battery_net !== undefined && Math.abs(battery_net) > 0.001) {
-    // 有 battery_net 值，用它决定方向
     if (battery_net > 0) {
-      batteryIn = battery_net;  // 正值表示充电
+      batteryIn = battery_net;
       batteryOut = 0;
     } else {
       batteryIn = 0;
-      batteryOut = -battery_net;  // 负值表示放电
+      batteryOut = -battery_net;
     }
   } else {
-    // 没有 battery_net，用充放电差值
     const netCharge = battery_charge - battery_discharge;
     if (netCharge > 0.001) {
-      batteryIn = netCharge;  // 净充电
+      batteryIn = netCharge;
       batteryOut = 0;
     } else if (netCharge < -0.001) {
       batteryIn = 0;
-      batteryOut = -netCharge;  // 净放电
+      batteryOut = -netCharge;
     } else {
-      // 充放电基本相等，都显示为0
       batteryIn = 0;
       batteryOut = 0;
     }
@@ -117,26 +112,22 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
     const isMobile = window.innerWidth < 1024;
     
     if (isMobile) {
-      // 手机上直接用屏幕宽度减去 padding
       const mobileWidth = window.innerWidth - 80;
       setContainerWidth(mobileWidth);
       initialWidthRef.current = mobileWidth;
     } else {
-      // 电脑上：延迟获取容器宽度，等布局稳定
       const updateWidth = () => {
         if (containerRef.current) {
           const width = containerRef.current.getBoundingClientRect().width;
-          if (width > 100) { // 确保宽度合理
+          if (width > 100) {
             setContainerWidth(width);
             initialWidthRef.current = width;
           }
         }
       };
       
-      // 立即尝试一次
       updateWidth();
       
-      // 延迟再试几次，确保布局稳定
       const timer1 = setTimeout(updateWidth, 100);
       const timer2 = setTimeout(updateWidth, 300);
       const timer3 = setTimeout(updateWidth, 500);
@@ -148,7 +139,6 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
       };
     }
     
-    // 监听窗口 resize
     const handleResize = () => {
       const isMobile = window.innerWidth < 1024;
       if (isMobile) {
@@ -173,7 +163,7 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    const margin = { top: 15, right: 20, bottom: 15, left: 20 };
+    const margin = { top: 8, right: 20, bottom: 8, left: 20 };
     const width = containerWidth - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
 
@@ -183,40 +173,48 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // 定义节点：左边3个输入，右边3个输出
-    // 节点宽度根据容器宽度自适应：小屏幕用更窄的节点
-    const nodeWidth = Math.min(90, Math.max(60, containerWidth * 0.12));
-    const nodeMinHeight = Math.min(50, (innerHeight - 30) / 3 - 10);
+    const nodeWidth = Math.min(100, Math.max(75, containerWidth * 0.14));
     
-    // 计算左侧节点高度（按值比例，但有最小高度）
     const leftNodes = ["Solar", "Battery Out", "Grid In"];
     const rightNodes = ["Battery In", "Load", "Grid Out"];
     
     const leftTotal = Math.max(totalInput, 0.001);
     const rightTotal = Math.max(totalOutput, 0.001);
     
-    const availableHeight = innerHeight - 30; // 留一些间距
+    const nodeGap = 4;
+    const totalGaps = (leftNodes.length - 1) * nodeGap;
+    const totalNodeHeight = innerHeight - 10 - totalGaps;  // 所有节点的总高度（不含间距）
+    const minNodeHeight = 55;  // 每个节点的最小高度
 
-    // 计算节点位置和大小
     const nodeData = [];
     
-    // 节点间距 - 减小间距
-    const nodeGap = 4;
+    // 计算高度的辅助函数：先分配最小高度，剩余按比例分配
+    const calculateHeights = (nodes, values, total) => {
+      const n = nodes.length;
+      const baseHeight = minNodeHeight * n;
+      const extraHeight = Math.max(0, totalNodeHeight - baseHeight);
+      
+      return nodes.map(name => {
+        const value = values[name];
+        const ratio = total > 0.001 ? value / total : 0;
+        return minNodeHeight + ratio * extraHeight;
+      });
+    };
+    
+    const leftHeights = calculateHeights(leftNodes, nodeValues, leftTotal);
+    const rightHeights = calculateHeights(rightNodes, nodeValues, rightTotal);
     
     // 左侧节点
     let leftY = 0;
     leftNodes.forEach((name, i) => {
-      const value = nodeValues[name];
-      const ratio = leftTotal > 0 ? value / leftTotal : 0;
-      const nodeMaxHeight = (innerHeight - 30) / 3;
-      const h = Math.min(Math.max(ratio * availableHeight * 0.8, nodeMinHeight), nodeMaxHeight);
+      const h = leftHeights[i];
       nodeData.push({
         name,
         x: 0,
         y: leftY,
         width: nodeWidth,
         height: h,
-        value,
+        value: nodeValues[name],
         side: "left",
         color: nodeColors[name],
         percentage: nodePercentages[name],
@@ -227,17 +225,14 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
     // 右侧节点
     let rightY = 0;
     rightNodes.forEach((name, i) => {
-      const value = nodeValues[name];
-      const ratio = rightTotal > 0 ? value / rightTotal : 0;
-      const nodeMaxHeight = (innerHeight - 30) / 3;
-      const h = Math.min(Math.max(ratio * availableHeight * 0.8, nodeMinHeight), nodeMaxHeight);
+      const h = rightHeights[i];
       nodeData.push({
         name,
         x: width - nodeWidth,
         y: rightY,
         width: nodeWidth,
         height: h,
-        value,
+        value: nodeValues[name],
         side: "right",
         color: nodeColors[name],
         percentage: nodePercentages[name],
@@ -269,7 +264,7 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
       nodeTargetOffset[n.name] = 0;
     });
 
-    // 计算每个源节点的总流出值，用于计算连接线宽度比例
+    // 计算流量总值
     const sourceFlowTotals = {};
     const targetFlowTotals = {};
     linkData.forEach(link => {
@@ -277,9 +272,10 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
       targetFlowTotals[link.target] = (targetFlowTotals[link.target] || 0) + link.value;
     });
 
-    // 绘制渐变定义 - 从source颜色渐变到target颜色
+    // 绘制渐变定义
     const defs = g.append("defs");
     
+    // Flow 渐变 - 从source颜色渐变到target颜色
     linkData.forEach((link, i) => {
       const sourceNode = nodeMap[link.source];
       const targetNode = nodeMap[link.target];
@@ -290,7 +286,6 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
         .attr("x1", "0%")
         .attr("x2", "100%");
       
-      // 从source颜色渐变到target颜色
       gradient.append("stop")
         .attr("offset", "0%")
         .attr("stop-color", sourceNode.color)
@@ -302,11 +297,10 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
         .attr("stop-opacity", 0.85);
     });
     
-    // 为节点创建渐变定义
+    // 节点渐变
     nodeData.forEach((node, i) => {
       const nodeGradientId = `node-gradient-${instanceId}-${node.name.replace(/\s+/g, '-')}`;
       
-      // 根据节点位置决定渐变方向
       const nodeGradient = defs.append("linearGradient")
         .attr("id", nodeGradientId)
         .attr("x1", node.side === "left" ? "0%" : "100%")
@@ -314,7 +308,6 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
         .attr("y1", "0%")
         .attr("y2", "100%");
       
-      // 主色调到稍亮的版本
       nodeGradient.append("stop")
         .attr("offset", "0%")
         .attr("stop-color", node.color)
@@ -331,44 +324,35 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
         .attr("stop-opacity", 0.9);
     });
 
-    // 计算并绘制连接
+    // 绘制连接
     linkData.forEach((link, i) => {
       const sourceNode = nodeMap[link.source];
       const targetNode = nodeMap[link.target];
       
-      // 计算link的粗细：同时考虑源节点和目标节点的比例
       const sourceTotal = sourceFlowTotals[link.source] || link.value;
       const targetTotal = targetFlowTotals[link.target] || link.value;
       const sourceRatio = link.value / sourceTotal;
       const targetRatio = link.value / targetTotal;
-      // 分别计算在源和目标节点的宽度
       const sourceWidth = Math.max(2, sourceRatio * (sourceNode.height - 10));
       const targetWidth = Math.max(2, targetRatio * (targetNode.height - 10));
       
-      
-      // 计算起点和终点
       const x0 = sourceNode.x + sourceNode.width;
       const y0 = sourceNode.y + nodeSourceOffset[link.source] + sourceWidth / 2 + 5;
       const x1 = targetNode.x;
       const y1 = targetNode.y + nodeTargetOffset[link.target] + targetWidth / 2 + 5;
-      // 源端和目标端的上下边界
       const sy0 = y0 - sourceWidth / 2;
       const sy1 = y0 + sourceWidth / 2;
       const ty0 = y1 - targetWidth / 2;
       const ty1 = y1 + targetWidth / 2;
       
-      // 更新偏移
       nodeSourceOffset[link.source] += sourceWidth;
       nodeTargetOffset[link.target] += targetWidth;
 
-      // 绘制贝塞尔曲线
       const curvature = 0.5;
       const xi = d3.interpolateNumber(x0, x1);
       const x2 = xi(curvature);
       const x3 = xi(1 - curvature);
-    
       
-      // 绘制填充区域（四边形，用贝塞尔曲线连接）      
       g.append("path")
         .attr("d", `
           M${x0},${sy0}
@@ -381,44 +365,71 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
         .attr("opacity", 0.9);
     });
 
-    // 绘制节点（使用渐变）
+    // 绘制节点
     nodeData.forEach(node => {
       const nodeG = g.append("g").attr("transform", `translate(${node.x},${node.y})`);
       const nodeGradientId = `node-gradient-${instanceId}-${node.name.replace(/\s+/g, '-')}`;
       
-      // 节点矩形 - 使用渐变填充
+      // 节点矩形
       nodeG.append("rect")
         .attr("width", node.width)
         .attr("height", node.height)
         .attr("rx", 6)
         .attr("fill", `url(#${nodeGradientId})`);
       
-      // 节点文字
-      const textY = node.height / 2;
+      // 标题button的样式 - 在block内部靠顶部
+      const labelPadding = { x: 4, y: 2 };
+      const labelRadius = 4;
+      
+      // 浅色button背景色 - 混合白色让它更浅
+      const baseColor = d3.color(node.color);
+      const buttonColor = d3.interpolateRgb(baseColor, "#FFFFFF")(0.5);
+      
+      // 第一行：名称 - 带button背景，在block顶部
+      const nameText = node.name;
+      const nameFontSize = 11;
+      // 限制button宽度不超过block宽度-8
+      const nameWidth = Math.min(nameText.length * nameFontSize * 0.6 + labelPadding.x * 2, node.width - 8);
+      const nameHeight = nameFontSize + labelPadding.y * 2;
+      const nameY = 6 + nameHeight / 2;  // 距离顶部6px
+      
+      nodeG.append("rect")
+        .attr("x", (node.width - nameWidth) / 2)
+        .attr("y", 6)
+        .attr("width", nameWidth)
+        .attr("height", nameHeight)
+        .attr("rx", labelRadius)
+        .attr("fill", buttonColor);
       
       nodeG.append("text")
         .attr("x", node.width / 2)
-        .attr("y", textY - 12)
+        .attr("y", nameY)
         .attr("text-anchor", "middle")
-        .attr("fill", "#F3F4F6")
-        .attr("font-size", "11px")
+        .attr("dominant-baseline", "middle")
+        .attr("fill", "#1F2937")
+        .attr("font-size", `${nameFontSize}px`)
         .attr("font-weight", "bold")
-        .text(node.name);
+        .text(nameText);
       
+      // 第二行：数值 - 在block中下部
+      const valueY = node.height * 0.55;
       nodeG.append("text")
         .attr("x", node.width / 2)
-        .attr("y", textY + 4)
+        .attr("y", valueY)
         .attr("text-anchor", "middle")
-        .attr("fill", "#FFFFFF")
-        .attr("font-size", "13px")
+        .attr("dominant-baseline", "middle")
+        .attr("fill", "#1F2937")
+        .attr("font-size", "14px")
         .attr("font-weight", "bold")
         .text(node.value.toFixed(2));
       
+      // 第三行：百分比 - 在数值下方
       nodeG.append("text")
         .attr("x", node.width / 2)
-        .attr("y", textY + 20)
+        .attr("y", valueY + 16)
         .attr("text-anchor", "middle")
-        .attr("fill", "#E5E7EB")
+        .attr("dominant-baseline", "middle")
+        .attr("fill", "#374151")
         .attr("font-size", "10px")
         .text(`(${node.percentage}%)`);
     });
