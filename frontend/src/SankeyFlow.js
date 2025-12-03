@@ -105,41 +105,9 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
     gridInToLoad = gridInToBatteryIn = 0;
   }
 
-  // 监听容器宽度变化
-  const initialWidthRef = useRef(null);
-  
+  // 监听容器宽度变化 - 使用 ResizeObserver 实时响应
   useEffect(() => {
-    const isMobile = window.innerWidth < 1024;
-    
-    if (isMobile) {
-      const mobileWidth = window.innerWidth - 80;
-      setContainerWidth(mobileWidth);
-      initialWidthRef.current = mobileWidth;
-    } else {
-      const updateWidth = () => {
-        if (containerRef.current) {
-          const width = containerRef.current.getBoundingClientRect().width;
-          if (width > 100) {
-            setContainerWidth(width);
-            initialWidthRef.current = width;
-          }
-        }
-      };
-      
-      updateWidth();
-      
-      const timer1 = setTimeout(updateWidth, 100);
-      const timer2 = setTimeout(updateWidth, 300);
-      const timer3 = setTimeout(updateWidth, 500);
-      
-      return () => {
-        clearTimeout(timer1);
-        clearTimeout(timer2);
-        clearTimeout(timer3);
-      };
-    }
-    
-    const handleResize = () => {
+    const updateWidth = () => {
       const isMobile = window.innerWidth < 1024;
       if (isMobile) {
         const mobileWidth = window.innerWidth - 80;
@@ -152,8 +120,38 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
       }
     };
     
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    // 初始更新
+    updateWidth();
+    
+    // 延迟更新以确保布局稳定
+    const timer1 = setTimeout(updateWidth, 100);
+    const timer2 = setTimeout(updateWidth, 300);
+    
+    // 使用 ResizeObserver 监听容器尺寸变化
+    let resizeObserver = null;
+    if (containerRef.current && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const width = entry.contentRect.width;
+          if (width > 100) {
+            setContainerWidth(width);
+          }
+        }
+      });
+      resizeObserver.observe(containerRef.current);
+    }
+    
+    // 窗口 resize 事件作为后备
+    window.addEventListener('resize', updateWidth);
+    
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      window.removeEventListener('resize', updateWidth);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
   }, []);
 
   // D3 绘制

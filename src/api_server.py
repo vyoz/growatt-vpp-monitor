@@ -8,6 +8,7 @@ Features:
 - Automatic multi-file query support
 - Real-time Modbus polling
 - Accurate kWh calculation using actual time intervals
+- ZeroHero VPP earnings calculation
 """
 
 import os
@@ -17,6 +18,7 @@ import csv
 import glob
 from datetime import datetime, timedelta
 from threading import Thread, Lock
+from collections import defaultdict
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymodbus.client import ModbusTcpClient
@@ -72,6 +74,29 @@ data_lock = Lock()
 
 RETRY_TIMEOUT_SEC = 10
 RETRY_DELAY_SEC = 0.5
+
+
+# ---------------------------------------------------------------------
+# ZeroHero VPP Tariff Configuration
+# ---------------------------------------------------------------------
+ZEROHERO_CONFIG = {
+    # ZEROHERO Day Credit
+    "zerohero_day_credit": 1.00,          # $/day reward
+    "zerohero_window_start": 18,           # 6pm
+    "zerohero_window_end": 20,             # 8pm (exclusive)
+    "zerohero_import_threshold": 0.03,     # kWh/hour max import
+    
+    # Super Export (during 6pm-8pm only)
+    "super_export_rate": 0.15,             # $/kWh (inclusive)
+    "super_export_limit": 10.0,            # kWh/day max
+    
+    # Regular Feed-in Tariff (outside Super Export window)
+    "fit_rates": {
+        "peak": 0.03,        # 4pm-6pm, 8pm-9pm
+        "shoulder": 0.003,   # 9pm-10am, 2pm-4pm
+        "offpeak": 0.00,     # 10am-2pm
+    },
+}
 
 
 # ---------------------------------------------------------------------
@@ -316,6 +341,206 @@ def read_csv_data(filepath, start_date=None, end_date=None):
         print(f"Error reading {filepath}: {e}")
     
     return data
+
+
+# ---------------------------------------------------------------------
+# ZeroHero Earnings Calculation
+# ---------------------------------------------------------------------
+def get_fit_period(hour):
+    """
+    Get Feed-in Tariff period and rate for hours OUTSIDE Super Export window.
+    
+    Time periods:
+    - Peak: 16:00-18:00 (4pm-6pm), 20:00-21:00 (8pm-9pm)
+    - Off-peak: 10:00-14:00 (10am-2pm)
+    - Shoulder: All other times
+    """
+    rates = ZEROHERO_CONFIG["fit_rates"]
+    
+    if hour in [16, 17, 20]:  # 4pm-6pm, 8pm-9pm (excluding Super Export)
+        return "peak", rates["peak"]
+    elif 10 <= hour < 14:  # 10am-2pm
+        return "offpeak", rates["offpeak"]
+    else:
+        return "shoulder", rates["shoulder"]
+
+
+def calculate_today_earnings(target_date=None):
+    """
+    Calculate ZeroHero VPP earnings for a specific date (default: today).
+    
+    This calculates earnings from midnight to current time for today,
+    or full day for past dates.
+    
+    Returns dict with:
+    - date: Target date
+    - total_export_kwh: Total energy exported
+    - zerohero_day: ZEROHERO Day Credit status and amount
+    - super_export: Super Export earnings (6pm-8pm)
+    - regular_fit: Regular feed-in tariff earnings
+    - total_earnings: Total earnings in AUD
+    
+    TODO: When Modbus cumulative energy registers are available,
+    replace CSV calculation with direct register reads for accuracy.
+    """
+    if target_date is None:
+        target_date = datetime.now().date()
+    
+    now = datetime.now()
+    is_today = (target_date == now.date())
+    current_hour = now.hour if is_today else 24
+    
+    cfg = ZEROHERO_CONFIG
+    
+    # Collect data points for target date
+    data_points = []
+    files = get_log_files_for_date_range(target_date, target_date)
+    
+    if files:
+        for filepath in files:
+            file_data = read_csv_data(filepath, target_date, target_date)
+            data_points.extend(file_data)
+    else:
+        # Fallback to in-memory data
+        with data_lock:
+            for d in historical_data:
+                if datetime.fromisoformat(d["timestamp"]).date() == target_date:
+                    data_points.append(d.copy())
+    
+    # Sort by timestamp
+    data_points.sort(key=lambda x: x["timestamp"])
+    
+    if len(data_points) < 2:
+        return {
+            "date": target_date.isoformat(),
+            "total_export_kwh": 0,
+            "zerohero_day": {
+                "qualified": False,
+                "credit": 0,
+                "reason": "Insufficient data"
+            },
+            "super_export": {"export_kwh": 0, "earnings": 0},
+            "regular_fit": {"export_kwh": 0, "earnings": 0},
+            "total_earnings": 0,
+            "data_points": len(data_points)
+        }
+    
+    # Calculate hourly export and import
+    hourly_export = defaultdict(float)
+    hourly_import = defaultdict(float)
+    
+    for i in range(len(data_points) - 1):
+        curr = data_points[i]
+        next_p = data_points[i + 1]
+        
+        t1 = datetime.fromisoformat(curr["timestamp"])
+        t2 = datetime.fromisoformat(next_p["timestamp"])
+        
+        # Skip if beyond current time (for today)
+        if is_today and t1.hour >= current_hour:
+            continue
+        
+        interval_sec = (t2 - t1).total_seconds()
+        
+        # Skip invalid intervals
+        if interval_sec <= 0 or interval_sec > 600:
+            continue
+        
+        interval_hours = interval_sec / 3600.0
+        hour = t1.hour
+        
+        hourly_export[hour] += curr["grid_export"] * interval_hours
+        hourly_import[hour] += abs(curr["grid_import"]) * interval_hours
+    
+    # ========== 1. ZEROHERO Day Credit Check ==========
+    # Only check hours that have passed (for today)
+    zerohero_qualified = True
+    zerohero_hourly_check = {}
+    zerohero_window_passed = False
+    
+    for hour in range(cfg["zerohero_window_start"], cfg["zerohero_window_end"]):
+        if is_today and hour >= current_hour:
+            # Window hasn't started/completed yet
+            continue
+        
+        zerohero_window_passed = True
+        import_kwh = hourly_import.get(hour, 0)
+        passed = import_kwh <= cfg["zerohero_import_threshold"]
+        zerohero_hourly_check[hour] = {
+            "import_kwh": round(import_kwh, 4),
+            "threshold": cfg["zerohero_import_threshold"],
+            "passed": passed
+        }
+        if not passed:
+            zerohero_qualified = False
+    
+    # If window hasn't passed yet today, status is pending
+    if is_today and not zerohero_window_passed:
+        zerohero_credit = 0
+        zerohero_status = "pending"
+    elif zerohero_qualified:
+        zerohero_credit = cfg["zerohero_day_credit"]
+        zerohero_status = "qualified"
+    else:
+        zerohero_credit = 0
+        zerohero_status = "not_qualified"
+    
+    # ========== 2. Super Export (6pm-8pm only) ==========
+    super_export_kwh = 0
+    for hour in range(cfg["zerohero_window_start"], cfg["zerohero_window_end"]):
+        if is_today and hour >= current_hour:
+            continue
+        super_export_kwh += hourly_export.get(hour, 0)
+    
+    super_export_credited = min(super_export_kwh, cfg["super_export_limit"])
+    super_export_earnings = super_export_credited * cfg["super_export_rate"]
+    
+    # ========== 3. Regular Feed-in (outside 6pm-8pm) ==========
+    regular_fit_kwh = 0
+    regular_fit_earnings = 0
+    
+    for hour, kwh in hourly_export.items():
+        # Skip Super Export window
+        if cfg["zerohero_window_start"] <= hour < cfg["zerohero_window_end"]:
+            continue
+        # Skip future hours for today
+        if is_today and hour >= current_hour:
+            continue
+        
+        period, rate = get_fit_period(hour)
+        regular_fit_kwh += kwh
+        regular_fit_earnings += kwh * rate
+    
+    # ========== 4. Total ==========
+    total_export = sum(hourly_export.values())
+    total_earnings = zerohero_credit + super_export_earnings + regular_fit_earnings
+    
+    return {
+        "date": target_date.isoformat(),
+        "is_partial": is_today,
+        "current_hour": current_hour if is_today else None,
+        "total_export_kwh": round(total_export, 4),
+        "zerohero_day": {
+            "status": zerohero_status,
+            "qualified": zerohero_qualified and zerohero_window_passed,
+            "credit": zerohero_credit,
+            "window": "6pm-8pm",
+            "hourly_check": zerohero_hourly_check
+        },
+        "super_export": {
+            "window": "6pm-8pm",
+            "export_kwh": round(super_export_kwh, 4),
+            "credited_kwh": round(super_export_credited, 4),
+            "rate": cfg["super_export_rate"],
+            "earnings": round(super_export_earnings, 4)
+        },
+        "regular_fit": {
+            "export_kwh": round(regular_fit_kwh, 4),
+            "earnings": round(regular_fit_earnings, 4)
+        },
+        "total_earnings": round(total_earnings, 4),
+        "data_points": len(data_points)
+    }
 
 
 # ---------------------------------------------------------------------
@@ -593,6 +818,103 @@ def calculate_daily_totals(target_date):
     return totals
 
 
+# ---------------------------------------------------------------------
+# Earnings API endpoints
+# ---------------------------------------------------------------------
+@app.route('/api/earnings/today', methods=['GET'])
+def get_earnings_today():
+    """
+    Get ZeroHero VPP earnings for today (from midnight to now).
+    
+    Returns earnings breakdown including:
+    - ZEROHERO Day Credit ($1/day if qualified)
+    - Super Export (6pm-8pm window)
+    - Regular Feed-in Tariff
+    
+    Example response:
+    {
+        "date": "2025-12-03",
+        "is_partial": true,
+        "total_export_kwh": 15.5,
+        "zerohero_day": {"status": "pending", "credit": 0},
+        "super_export": {"export_kwh": 0.5, "earnings": 0.075},
+        "regular_fit": {"export_kwh": 15.0, "earnings": 0.045},
+        "total_earnings": 0.12
+    }
+    """
+    earnings = calculate_today_earnings()
+    return jsonify(earnings)
+
+
+@app.route('/api/earnings', methods=['GET'])
+def get_earnings():
+    """
+    Get ZeroHero VPP earnings for a specific date.
+    
+    Query parameters:
+    - date: Date in YYYY-MM-DD format (optional, defaults to today)
+    
+    Example: /api/earnings?date=2025-12-02
+    """
+    date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    
+    try:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+    
+    earnings = calculate_today_earnings(target_date)
+    return jsonify(earnings)
+
+
+@app.route('/api/earnings/range', methods=['GET'])
+def get_earnings_range():
+    """
+    Get ZeroHero VPP earnings for a date range.
+    
+    Query parameters:
+    - start_date: Start date in YYYY-MM-DD format (required)
+    - end_date: End date in YYYY-MM-DD format (optional, defaults to today)
+    
+    Example: /api/earnings/range?start_date=2025-11-28&end_date=2025-12-03
+    """
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
+    
+    if not start_date_str:
+        return jsonify({"error": "start_date is required (YYYY-MM-DD)"}), 400
+    
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+    
+    if end_date < start_date:
+        return jsonify({"error": "end_date cannot be before start_date"}), 400
+    
+    if (end_date - start_date).days > 90:
+        return jsonify({"error": "Date range cannot exceed 90 days"}), 400
+    
+    results = []
+    total_earnings = 0
+    current = start_date
+    
+    while current <= end_date:
+        earnings = calculate_today_earnings(current)
+        results.append(earnings)
+        total_earnings += earnings.get("total_earnings", 0)
+        current += timedelta(days=1)
+    
+    return jsonify({
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "count": len(results),
+        "total_earnings": round(total_earnings, 4),
+        "data": results
+    })
+
+
 @app.route('/api/archives', methods=['GET'])
 def get_archives():
     """List all available archive files"""
@@ -644,4 +966,5 @@ if __name__ == '__main__':
     print(f"🚀 Starting Flask API server on port {port}")
     print(f"📁 Log directory: {log_dir}")
     print(f"📊 Archives: {len(get_all_log_files())} files")
+    print(f"💰 ZeroHero earnings API: /api/earnings/today")
     app.run(host='0.0.0.0', port=port, debug=False)

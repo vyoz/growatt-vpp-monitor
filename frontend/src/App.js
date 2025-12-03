@@ -3,6 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import SolarHouse3D from './SolarHouse3D';
 import WeatherDisplay from './WeatherDisplay';
 import SankeyFlow from './SankeyFlow';
+import DailyEarnings from './DailyEarnings';
 
 // ============================================================
 // 配置 - 修改这里的 API 地址
@@ -243,9 +244,14 @@ const RealtimeSection = ({ currentData, error }) => {
         </div>
 
         {/* 右侧：Sankey图 - 占2列 */}
-        <div className="lg:col-span-2 bg-gray-800/50 rounded-xl p-3 overflow-hidden">
+        <div className="lg:col-span-1 bg-gray-800/50 rounded-xl p-3 overflow-hidden">
           <h3 className="text-gray-400 text-xs font-medium mb-1">能量流向 <span className="text-gray-500">(kW)</span></h3>
           <SankeyFlow data={data} height={220} instanceId="realtime" />
+        </div>
+
+        {/* 右侧：每日收益组件 - 占1列 */}
+        <div className="lg:col-span-1 bg-gray-800/50 rounded-xl overflow-hidden h-[220px] lg:h-[260px]">
+          <DailyEarnings apiBase={API_BASE} />
         </div>
       </div>
     </SectionContainer>
