@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 // ============================================================
 // 模块容器组件
@@ -129,21 +129,21 @@ const PowerChart = ({ apiBase }) => {
   useEffect(() => {
     fetchData();
     
-    // 计算到下一个5分钟整点的时间
+    // 计算到下一个采样间隔整点的时间
     const now = new Date();
     const minutes = now.getMinutes();
     const seconds = now.getSeconds();
-    const msToNext5Min = ((5 - (minutes % 5)) * 60 - seconds) * 1000;
+    const msToNextInterval = ((sampleInterval - (minutes % sampleInterval)) * 60 - seconds) * 1000;
     
-    // 先等到下一个5分钟整点，然后每5分钟刷新
+    // 先等到下一个整点，然后按采样间隔刷新
     const timeout = setTimeout(() => {
       fetchData();
-      const interval = setInterval(fetchData, 5 * 60 * 1000);
+      const interval = setInterval(fetchData, sampleInterval * 60 * 1000);
       return () => clearInterval(interval);
-    }, msToNext5Min);
+    }, msToNextInterval);
     
     return () => clearTimeout(timeout);
-  }, [fetchData]);
+  }, [fetchData, sampleInterval]);
 
   // 按选定间隔采样处理
   const sampledData = useMemo(() => {
@@ -171,7 +171,7 @@ const PowerChart = ({ apiBase }) => {
           solar: d.solar,
           load: d.load,
           battery: d.battery_net,
-          grid: d.grid_export - d.grid_import
+          grid: d.grid_export - d.grid_import  // 正值=卖电，负值=买电
         });
       }
     });
@@ -192,13 +192,19 @@ const PowerChart = ({ apiBase }) => {
     return sampledData.slice(-visiblePoints);
   }, [sampledData, visiblePoints]);
 
-  // 是否启用滚动模式
+  // 是否启用滚动模式：实际显示的数据点超过50个
   const needsScroll = displayData.length > SCROLL_THRESHOLD;
   
-  // 滚动模式下的图表宽度：固定每个数据点的间距
-  // 50个点以上启用滚动，固定每点间距12px，这样看起来比较舒适
-  const PIXELS_PER_POINT = 12;
-  const chartWidth = needsScroll ? displayData.length * PIXELS_PER_POINT : null;
+  // 滚动模式下的图表宽度：根据数据点数量动态调整
+  // 点少时宽松，点多时紧凑
+  const getChartWidth = () => {
+    const points = displayData.length;
+    if (points <= 100) return points * 12;      // 少量点：12px/点
+    if (points <= 200) return points * 8;       // 中等：8px/点
+    if (points <= 400) return points * 5;       // 较多：5px/点
+    return points * 3;                          // 大量：3px/点
+  };
+  const chartWidth = needsScroll ? Math.max(getChartWidth(), 800) : null;
   
   // 数据变化时滚动到最右端（最新数据）
   useEffect(() => {
@@ -288,99 +294,58 @@ const PowerChart = ({ apiBase }) => {
           
           {/* 图表容器 */}
           {needsScroll ? (
-            // 滚动模式：Y轴固定，图表内容可滚动
-            <div className="flex">
-              {/* 固定的Y轴 */}
-              <div className="flex-shrink-0 w-[50px]">
-                <svg width="50" height={350}>
-                  {/* 计算Y轴范围 */}
-                  {(() => {
-                    const allValues = displayData.flatMap(d => [d.solar, d.load, d.battery, d.grid]);
-                    const minVal = Math.floor(Math.min(...allValues));
-                    const maxVal = Math.ceil(Math.max(...allValues));
-                    const range = maxVal - minVal || 1;
-                    const step = range / 5;
-                    const ticks = [];
-                    for (let i = 0; i <= 5; i++) {
-                      ticks.push(minVal + step * i);
-                    }
-                    const chartTop = 10;
-                    const chartBottom = 330;
-                    const chartHeight = chartBottom - chartTop;
-                    
-                    return (
-                      <g>
-                        {/* Y轴线 */}
-                        <line x1="49" y1={chartTop} x2="49" y2={chartBottom} stroke="#9CA3AF" strokeWidth="1" />
-                        {/* Y轴刻度 */}
-                        {ticks.map((tick, i) => {
-                          const y = chartBottom - (tick - minVal) / range * chartHeight;
-                          return (
-                            <g key={i}>
-                              <line x1="44" y1={y} x2="49" y2={y} stroke="#9CA3AF" strokeWidth="1" />
-                              <text x="42" y={y + 4} fill="#9CA3AF" fontSize="10" textAnchor="end">
-                                {tick.toFixed(1)}
-                              </text>
-                            </g>
-                          );
-                        })}
-                      </g>
-                    );
-                  })()}
-                </svg>
-              </div>
-              
-              {/* 可滚动的图表内容 */}
-              <div 
-                ref={scrollContainerRef}
-                className="flex-1 overflow-x-auto cursor-grab active:cursor-grabbing"
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onTouchStart={handleMouseDown}
-                onTouchMove={handleMouseMove}
-                onTouchEnd={handleMouseUp}
-                style={{ 
-                  scrollbarWidth: 'thin',
-                  scrollbarColor: '#4B5563 #1F2937'
-                }}
+            // 滚动模式：可拖动查看
+            <div 
+              ref={scrollContainerRef}
+              className="overflow-x-auto cursor-grab active:cursor-grabbing"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              onTouchStart={handleMouseDown}
+              onTouchMove={handleMouseMove}
+              onTouchEnd={handleMouseUp}
+              style={{ 
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#4B5563 #1F2937'
+              }}
+            >
+              <LineChart 
+                data={displayData} 
+                width={chartWidth} 
+                height={350}
+                margin={{ top: 10, right: 30, left: 40, bottom: 20 }}
               >
-                <LineChart 
-                  data={displayData} 
-                  width={chartWidth} 
-                  height={350}
-                  margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis 
-                    dataKey="time" 
-                    stroke="#9CA3AF" 
-                    fontSize={10}
-                    interval={Math.floor(displayData.length / 20)}
-                    tickFormatter={(value) => {
-                      const match = value.match(/(\d{1,2}:\d{2})/);
-                      return match ? match[1] : value;
-                    }}
-                  />
-                  <YAxis stroke="#9CA3AF" hide={true} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
-                    labelStyle={{ color: '#F3F4F6' }}
-                  />
-                  <Legend />
-                  <Line type="monotone" dataKey="solar" stroke="#FCD34D" strokeWidth={2} dot={false} name="Solar (kW)" />
-                  <Line type="monotone" dataKey="load" stroke="#A78BFA" strokeWidth={2} dot={false} name="Load (kW)" />
-                  <Line type="monotone" dataKey="battery" stroke="#22D3EE" strokeWidth={2} dot={false} name="Battery (kW)" />
-                  <Line type="monotone" dataKey="grid" stroke="#60A5FA" strokeWidth={2} dot={false} name="Grid (kW)" />
-                </LineChart>
-              </div>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1} />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#9CA3AF" 
+                  fontSize={10}
+                  interval={Math.floor(displayData.length / 20)}
+                  tickFormatter={(value) => {
+                    const match = value.match(/(\d{1,2}:\d{2})/);
+                    return match ? match[1] : value;
+                  }}
+                />
+                <YAxis stroke="#9CA3AF" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
+                  labelStyle={{ color: '#F3F4F6' }}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="solar" stroke="#FCD34D" strokeWidth={2} dot={false} name="Solar (kW)" />
+                <Line type="monotone" dataKey="load" stroke="#A78BFA" strokeWidth={2} dot={false} name="Load (kW)" />
+                <Line type="monotone" dataKey="battery" stroke="#22D3EE" strokeWidth={2} dot={false} name="Battery (kW)" />
+                <Line type="monotone" dataKey="grid" stroke="#60A5FA" strokeWidth={2} dot={false} name="Grid (kW)" />
+              </LineChart>
             </div>
           ) : (
             // 正常模式：响应式宽度
             <ResponsiveContainer width="100%" height={350}>
               <LineChart data={displayData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1} />
                 <XAxis 
                   dataKey="time" 
                   stroke="#9CA3AF" 
