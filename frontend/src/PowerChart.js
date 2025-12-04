@@ -33,6 +33,15 @@ const formatDate = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+// 时间段选项（小时）
+const TIME_RANGES = [
+  { value: 1, label: '1小时' },
+  { value: 3, label: '3小时' },
+  { value: 6, label: '6小时' },
+  { value: 12, label: '12小时' },
+  { value: 24, label: '24小时' },
+];
+
 // 采样间隔选项（分钟）
 const SAMPLE_INTERVALS = [
   { value: 1, label: '1分钟' },
@@ -53,12 +62,15 @@ const PowerChart = ({ apiBase }) => {
   // 采样间隔（分钟）
   const [sampleInterval, setSampleInterval] = useState(5);
   
+  // 显示时间范围（小时）
+  const [timeRange, setTimeRange] = useState(1);
+  
+  // 动态计算显示的数据点数：时间范围(小时) * 60 / 采样间隔(分钟)
+  const visiblePoints = Math.floor(timeRange * 60 / sampleInterval);
+  
   // 动态计算 MAX_POINTS：24小时 = 1440分钟
   const MAX_POINTS = Math.floor(1440 / sampleInterval);
   const MIN_POINTS = 20;
-  
-  // 缩放状态：显示的数据点数量
-  const [visiblePoints, setVisiblePoints] = useState(MIN_POINTS);
   
   // 滚动相关
   const SCROLL_THRESHOLD = 50; // 超过50个点启用滚动
@@ -219,7 +231,7 @@ const PowerChart = ({ apiBase }) => {
             <span>功率曲线</span>
           </h2>
           <p className="text-gray-400 text-xs">
-            最近24小时 | 显示: {displayData.length}/{sampledData.length} 点
+            {getTimeRangeText()}
             {lastUpdate ? ` | 更新: ${lastUpdate.toLocaleTimeString('zh-CN')}` : ''}
           </p>
         </div>
@@ -229,10 +241,7 @@ const PowerChart = ({ apiBase }) => {
           <span className="text-gray-400 text-xs">采样:</span>
           <select
             value={sampleInterval}
-            onChange={(e) => {
-              setSampleInterval(Number(e.target.value));
-              setVisiblePoints(MIN_POINTS); // 重置显示点数
-            }}
+            onChange={(e) => setSampleInterval(Number(e.target.value))}
             className="bg-gray-700 text-white text-xs px-2 py-1 rounded border border-gray-600 focus:border-blue-500 focus:outline-none cursor-pointer"
           >
             {SAMPLE_INTERVALS.map(opt => (
@@ -248,42 +257,26 @@ const PowerChart = ({ apiBase }) => {
         <div className="text-gray-400 text-center py-12">暂无数据</div>
       ) : (
         <div className="bg-gray-800/50 rounded-xl p-4">
-          {/* 缩放滑块 - 只在数据点足够多时显示 */}
-          {sampledData.length > MIN_POINTS ? (
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-gray-400 text-xs whitespace-nowrap">时间范围</span>
-              <div className="flex-1 flex items-center gap-2">
-                <span className="text-gray-500 text-xs">近</span>
-                <input
-                  type="range"
-                  min={MIN_POINTS}
-                  max={sampledData.length}
-                  value={visiblePoints}
-                  onChange={(e) => setVisiblePoints(Number(e.target.value))}
-                  className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer
-                    [&::-webkit-slider-thumb]:appearance-none
-                    [&::-webkit-slider-thumb]:w-4
-                    [&::-webkit-slider-thumb]:h-4
-                    [&::-webkit-slider-thumb]:rounded-full
-                    [&::-webkit-slider-thumb]:bg-blue-500
-                    [&::-webkit-slider-thumb]:cursor-pointer
-                    [&::-webkit-slider-thumb]:hover:bg-blue-400
-                    [&::-moz-range-thumb]:w-4
-                    [&::-moz-range-thumb]:h-4
-                    [&::-moz-range-thumb]:rounded-full
-                    [&::-moz-range-thumb]:bg-blue-500
-                    [&::-moz-range-thumb]:border-0
-                    [&::-moz-range-thumb]:cursor-pointer"
-                />
-                <span className="text-gray-500 text-xs">远</span>
-              </div>
-              <span className="text-gray-400 text-xs whitespace-nowrap">{getTimeRangeText()}</span>
-            </div>
-          ) : (
-            <div className="text-gray-500 text-xs mb-3">
-              {getTimeRangeText()} (数据点: {sampledData.length})
-            </div>
-          )}
+          {/* 时间范围按钮 */}
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="text-gray-400 text-xs">时间范围:</span>
+            {TIME_RANGES.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setTimeRange(opt.value)}
+                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                  timeRange === opt.value
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            <span className="text-gray-500 text-xs ml-2">
+              ({displayData.length} 点)
+            </span>
+          </div>
           
           {/* 滚动提示 */}
           {needsScroll && (
