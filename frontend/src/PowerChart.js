@@ -183,9 +183,10 @@ const PowerChart = ({ apiBase }) => {
   // 是否启用滚动模式
   const needsScroll = displayData.length > SCROLL_THRESHOLD;
   
-  // 计算滚动模式下的图表宽度：确保比容器宽，每个数据点至少20px
-  // 最小宽度1200px，保证一定能滚动
-  const chartWidth = needsScroll ? Math.max(displayData.length * 20, 1200) : null;
+  // 滚动模式下的图表宽度：固定每个数据点的间距
+  // 50个点以上启用滚动，固定每点间距12px，这样看起来比较舒适
+  const PIXELS_PER_POINT = 12;
+  const chartWidth = needsScroll ? displayData.length * PIXELS_PER_POINT : null;
   
   // 数据变化时滚动到最右端（最新数据）
   useEffect(() => {
