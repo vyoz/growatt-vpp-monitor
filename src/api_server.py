@@ -229,27 +229,27 @@ def poll_inverter():
         try:
             # Read all registers
             pv_raw = read_u32(client, 1, unit_id)
-            grid_import_raw = read_u32(client, 1021, unit_id)  # Grid import (hi|lo)
-            grid_export_raw = read_u32(client, 1029, unit_id)  # Grid export (需要验证)
+            grid_raw = read_s32(client, 1029, unit_id)
             load_raw = read_s32(client, 1037, unit_id)
             soc_inv = read_u16(client, 1014, unit_id)
             soc_bms = read_u16(client, 1086, unit_id)
             
-            # Convert to kW (raw value is in 0.1W)
+            # Convert to watts/kW
             pv = (pv_raw / 10.0 / 1000.0) if pv_raw is not None else 0
-            grid_import = (grid_import_raw / 10.0 / 1000.0) if grid_import_raw is not None else 0
-            grid_export = (grid_export_raw / 10.0 / 1000.0) if grid_export_raw is not None else 0
+            grid = (grid_raw / 10.0 / 1000.0) if grid_raw is not None else 0
             load_val = (load_raw / 10.0 / 1000.0) if load_raw is not None else 0
             
             # Calculate battery power using energy balance
-            # battery_net = solar + grid_import - grid_export - load
-            # positive = charging, negative = discharging
-            if pv is not None and load_val is not None:
-                battery_net = pv + grid_import - grid_export - load_val
+            if pv is not None and load_val is not None and grid is not None:
+                battery_net = pv - load_val - grid
                 battery_charge = max(battery_net, 0)
                 battery_discharge = max(-battery_net, 0)
+                grid_export = max(grid, 0)
+                grid_import = max(-grid, 0)
             else:
                 battery_net = battery_charge = battery_discharge = 0
+                grid_export = max(grid, 0) if grid else 0
+                grid_import = max(-grid, 0) if grid else 0
             
             timestamp = datetime.now().isoformat()
             
@@ -280,7 +280,7 @@ def poll_inverter():
             # Log to monthly CSV file
             log_to_csv(current_data)
             
-            print(f"📊 [{timestamp}] PV={pv:.2f}kW Load={load_val:.2f}kW Import={grid_import:.2f}kW Export={grid_export:.2f}kW Batt={battery_net:.2f}kW SOC={soc_bms}%")
+            print(f"📊 [{timestamp}] PV={pv:.2f}kW Load={load_val:.2f}kW Grid={grid:.2f}kW Batt={battery_net:.2f}kW SOC={soc_bms}%")
             
         except Exception as e:
             print(f"❌ Error polling inverter: {e}")
@@ -453,17 +453,25 @@ def calculate_today_earnings(target_date=None):
         hourly_import[hour] += abs(curr["grid_import"]) * interval_hours
     
     # ========== 1. ZEROHERO Day Credit Check ==========
-    # Only check hours that have passed (for today)
+    # For today: only show "qualified" after the entire 6pm-8pm window has passed
     zerohero_qualified = True
     zerohero_hourly_check = {}
-    zerohero_window_passed = False
+    zerohero_window_complete = False  # True only when entire window (18,19) is done
     
+    # Check if the entire zerohero window has completed
+    if is_today:
+        # Window is complete only after 8pm (hour >= 20)
+        zerohero_window_complete = (current_hour >= cfg["zerohero_window_end"])
+    else:
+        # For past dates, window is always complete
+        zerohero_window_complete = True
+    
+    # Check each hour in the window that has passed
     for hour in range(cfg["zerohero_window_start"], cfg["zerohero_window_end"]):
         if is_today and hour >= current_hour:
-            # Window hasn't started/completed yet
+            # This hour hasn't completed yet
             continue
         
-        zerohero_window_passed = True
         import_kwh = hourly_import.get(hour, 0)
         passed = import_kwh <= cfg["zerohero_import_threshold"]
         zerohero_hourly_check[hour] = {
@@ -474,14 +482,17 @@ def calculate_today_earnings(target_date=None):
         if not passed:
             zerohero_qualified = False
     
-    # If window hasn't passed yet today, status is pending
-    if is_today and not zerohero_window_passed:
+    # Determine status
+    if is_today and not zerohero_window_complete:
+        # Window hasn't fully completed yet - status is pending
         zerohero_credit = 0
         zerohero_status = "pending"
     elif zerohero_qualified:
+        # Window complete and all hours passed
         zerohero_credit = cfg["zerohero_day_credit"]
         zerohero_status = "qualified"
     else:
+        # Window complete but failed qualification
         zerohero_credit = 0
         zerohero_status = "not_qualified"
     
@@ -522,7 +533,7 @@ def calculate_today_earnings(target_date=None):
         "total_export_kwh": round(total_export, 4),
         "zerohero_day": {
             "status": zerohero_status,
-            "qualified": zerohero_qualified and zerohero_window_passed,
+            "qualified": zerohero_status == "qualified",
             "credit": zerohero_credit,
             "window": "6pm-8pm",
             "hourly_check": zerohero_hourly_check
