@@ -30,4 +30,5 @@ python3 src/growatt_monitor.py
 ```
 
 Reference:
-  https://github.com/8none1/growatt_sph_nodered/
+  - https://github.com/8none1/growatt_sph_nodered/
+  - https://github.com/JasperE84/Growatt_ESPHome_ESP32_Modbus_RS485_Example
