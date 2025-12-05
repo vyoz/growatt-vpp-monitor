@@ -673,7 +673,7 @@ const SolarHouse3D = ({
       </div>
 
       {/* SVG Connection Lines - 调整为紧凑版viewBox */}
-      <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[5]" viewBox="0 0 400 320" preserveAspectRatio="none">
+      <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[5]" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet">
         <style>{`
           .conn-line {
             stroke: rgba(255,255,255,0.2);

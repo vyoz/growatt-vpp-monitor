@@ -134,8 +134,9 @@ const EnergyFlowCanvas = ({
     const viewBoxHeight = 320;
     
     // 使用 ResizeObserver 获取实际容器尺寸
-    let scaleX = 1;
-    let scaleY = 1;
+    let scale = 1;
+    let offsetX = 0;
+    let offsetY = 0;
     
     const updateCanvasSize = () => {
       const rect = canvas.getBoundingClientRect();
@@ -145,9 +146,14 @@ const EnergyFlowCanvas = ({
       canvas.width = rect.width * dpr;
       canvas.height = rect.height * dpr;
       
-      // 计算缩放比例（与 SVG preserveAspectRatio="none" 一致）
-      scaleX = rect.width / viewBoxWidth;
-      scaleY = rect.height / viewBoxHeight;
+      // 计算统一缩放比例（与 SVG preserveAspectRatio="xMidYMid meet" 一致）
+      const scaleX = rect.width / viewBoxWidth;
+      const scaleY = rect.height / viewBoxHeight;
+      scale = Math.min(scaleX, scaleY);
+      
+      // 计算居中偏移
+      offsetX = (rect.width - viewBoxWidth * scale) / 2;
+      offsetY = (rect.height - viewBoxHeight * scale) / 2;
       
       // 缩放 context 以匹配设备像素比
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -210,18 +216,18 @@ const EnergyFlowCanvas = ({
         const b = parseInt(color.slice(5, 7), 16);
         
         ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-        ctx.lineWidth = width * Math.min(scaleX, scaleY); // 线宽也要缩放
+        ctx.lineWidth = width * scale;
         ctx.lineCap = 'round';
         
         // 添加发光效果
-        ctx.shadowBlur = 8 * opacity * Math.min(scaleX, scaleY);
+        ctx.shadowBlur = 8 * opacity * scale;
         ctx.shadowColor = color;
         
         if (i > startIndex) {
           ctx.beginPath();
-          // 应用缩放到坐标
-          ctx.moveTo(points[i - 1].x * scaleX, points[i - 1].y * scaleY);
-          ctx.lineTo(point.x * scaleX, point.y * scaleY);
+          // 应用统一缩放和居中偏移
+          ctx.moveTo(points[i - 1].x * scale + offsetX, points[i - 1].y * scale + offsetY);
+          ctx.lineTo(point.x * scale + offsetX, point.y * scale + offsetY);
           ctx.stroke();
         }
       }
