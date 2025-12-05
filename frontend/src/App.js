@@ -372,17 +372,11 @@ function App() {
   const [historicalData, setHistoricalData] = useState([]);
   const [dailyData, setDailyData] = useState([]);
   const [dailyLoading, setDailyLoading] = useState(false);
-  const [socData, setSocData] = useState([]);
-  const [socLoading, setSocLoading] = useState(false);
   //const [error, setError] = useState(null);
   const [realtimeError, setRealtimeError] = useState(null); 
   
   const [startDate, setStartDate] = useState(getToday());
   const [endDate, setEndDate] = useState(getToday());
-  
-  // SOC 图表单独的日期状态
-  const [socStartDate, setSocStartDate] = useState(getToday());
-  const [socEndDate, setSocEndDate] = useState(getToday());
 
   // 实时数据轮询
   useEffect(() => {
@@ -466,79 +460,14 @@ function App() {
     }
   }, [startDate, endDate]);
 
-  // 获取 SOC 历史数据
-  const fetchSOCData = useCallback(async (start, end, filterFromTimestamp = null) => {
-    const queryStart = start || socStartDate;
-    const queryEnd = end || socEndDate;
-    setSocLoading(true);
-    try {
-      // 获取更多数据点用于 SOC 曲线
-      const response = await fetch(`${API_BASE}/api/history/range?start_date=${queryStart}&end_date=${queryEnd}&limit=5000`);
-      if (!response.ok) throw new Error('获取SOC数据失败');
-      const result = await response.json();
-      
-      if (result.data && result.data.length > 0) {
-        // 按小时采样：取每个小时前30秒内的第一个数据点
-        const hourlyData = [];
-        const seenHours = new Set();
-        
-        for (const d of result.data) {
-          const date = new Date(d.timestamp);
-
-           // 如果有过滤时间戳，跳过早于该时间的数据
-          if (filterFromTimestamp && date.getTime() < filterFromTimestamp) {
-            continue;
-          }
-          
-          const minute = date.getMinutes();
-          const second = date.getSeconds();
-          
-          // 只取每小时0-30秒内的数据
-          if (minute === 0 && second <= 30) {
-            // 生成小时标识：YYYY-MM-DD-HH
-            const hourKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
-            
-            if (!seenHours.has(hourKey)) {
-              seenHours.add(hourKey);
-              hourlyData.push({
-                time: `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}时`,
-                timestamp: d.timestamp,
-                soc: d.soc_bms || d.soc_inv || 0
-              });
-            }
-          }
-        }
-        
-        setSocData(hourlyData);
-      } else {
-        setSocData([]);
-      }
-    } catch (err) {
-      console.error('Failed to fetch SOC data:', err);
-      setSocData([]);
-    } finally {
-      setSocLoading(false);
-    }
-  }, [socStartDate, socEndDate]);
-
-  // SOC 查询按钮处理
-  const handleSOCApply = (start, end, filterFromTimestamp = null) => {
-    fetchSOCData(start, end, filterFromTimestamp);
-  };
-
   // 初始加载 - 默认使用过去7天
   useEffect(() => {
     const today = getToday();
     const now = new Date();
     const weekAgo = formatDate(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
-    const yesterday = formatDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     setStartDate(weekAgo);
     setEndDate(today);
-    setSocStartDate(yesterday);
-    setSocEndDate(today);
     fetchDailyRange(weekAgo, today);
-    // SOC 默认使用过去24小时（精确到小时）
-    fetchSOCData(yesterday, today, now.getTime() - 24 * 60 * 60 * 1000);
   }, []); // 只在组件挂载时执行一次
 
   // 查询按钮处理
@@ -587,15 +516,7 @@ function App() {
         <PowerChart apiBase={API_BASE} />
 
         {/* 模块四：电池电量曲线 */}
-        <BatterySOCChart 
-          socData={socData}
-          isLoading={socLoading}
-          startDate={socStartDate}
-          endDate={socEndDate}
-          onStartDateChange={setSocStartDate}
-          onEndDateChange={setSocEndDate}
-          onApply={handleSOCApply}
-        />
+        <BatterySOCChart apiBase={API_BASE} />
       </div>
 
       {/* 底部 */}
