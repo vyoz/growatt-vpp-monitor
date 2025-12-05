@@ -129,17 +129,33 @@ const EnergyFlowCanvas = ({
 
     const ctx = canvas.getContext('2d');
     
-    // 设置 canvas 尺寸匹配 SVG viewBox (400x320)
+    // SVG viewBox 的原始尺寸
+    const viewBoxWidth = 400;
+    const viewBoxHeight = 320;
+    
+    // 使用 ResizeObserver 获取实际容器尺寸
+    let scaleX = 1;
+    let scaleY = 1;
+    
     const updateCanvasSize = () => {
       const rect = canvas.getBoundingClientRect();
-      canvas.width = 400;
-      canvas.height = 320;
-      canvas.style.width = rect.width + 'px';
-      canvas.style.height = rect.height + 'px';
+      const dpr = window.devicePixelRatio || 1;
+      
+      // 设置 canvas 实际像素尺寸（考虑设备像素比）
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      
+      // 计算缩放比例（与 SVG preserveAspectRatio="none" 一致）
+      scaleX = rect.width / viewBoxWidth;
+      scaleY = rect.height / viewBoxHeight;
+      
+      // 缩放 context 以匹配设备像素比
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     
+    const resizeObserver = new ResizeObserver(updateCanvasSize);
+    resizeObserver.observe(canvas);
     updateCanvasSize();
-    window.addEventListener('resize', updateCanvasSize);
 
     // 定义路径（与 SVG 中的路径一致）
     const pathDefinitions = {
@@ -194,17 +210,18 @@ const EnergyFlowCanvas = ({
         const b = parseInt(color.slice(5, 7), 16);
         
         ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-        ctx.lineWidth = width;
+        ctx.lineWidth = width * Math.min(scaleX, scaleY); // 线宽也要缩放
         ctx.lineCap = 'round';
         
         // 添加发光效果
-        ctx.shadowBlur = 8 * opacity;
+        ctx.shadowBlur = 8 * opacity * Math.min(scaleX, scaleY);
         ctx.shadowColor = color;
         
         if (i > startIndex) {
           ctx.beginPath();
-          ctx.moveTo(points[i - 1].x, points[i - 1].y);
-          ctx.lineTo(point.x, point.y);
+          // 应用缩放到坐标
+          ctx.moveTo(points[i - 1].x * scaleX, points[i - 1].y * scaleY);
+          ctx.lineTo(point.x * scaleX, point.y * scaleY);
           ctx.stroke();
         }
       }
@@ -213,6 +230,7 @@ const EnergyFlowCanvas = ({
     };
 
     const animate = () => {
+      // 使用实际 canvas 尺寸清除
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // 假设 60 FPS，计算每帧应该移动的距离
@@ -275,7 +293,7 @@ const EnergyFlowCanvas = ({
     animate();
 
     return () => {
-      window.removeEventListener('resize', updateCanvasSize);
+      resizeObserver.disconnect();
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
