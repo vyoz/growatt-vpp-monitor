@@ -88,19 +88,25 @@ const SolarHouse3D = ({
     }
 
     const container = containerRef.current;
-    const width = container.clientWidth || container.offsetWidth || 900;
-    const height = container.clientHeight || container.offsetHeight || 650;
+    let initialized = false;
+    let resizeObserver = null;
 
-    if (width === 0 || height === 0) {
-      console.warn('SolarHouse3D: Container has zero size', { width, height });
-      setRenderError(true);
-      return;
-    }
+    const initScene = () => {
+      if (initialized) return;
+      
+      const width = container.clientWidth || container.offsetWidth;
+      const height = container.clientHeight || container.offsetHeight;
 
-    console.log('SolarHouse3D: Initializing', { width, height });
-    setRenderError(false);
+      if (width < 10 || height < 10) {
+        console.warn('SolarHouse3D: Container too small, waiting...', { width, height });
+        return;
+      }
 
-    try {
+      console.log('SolarHouse3D: Initializing', { width, height });
+      setRenderError(false);
+      initialized = true;
+
+      try {
       // Scene
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x2d323d);
@@ -170,22 +176,44 @@ const SolarHouse3D = ({
     };
     animate();
 
-    // Resize handler
+      } catch (error) {
+        console.error('SolarHouse3D: Fatal initialization error', error);
+        setRenderError(true);
+      }
+    }; // end of initScene
+
+    // 使用 ResizeObserver 检测容器尺寸变化
+    resizeObserver = new ResizeObserver(() => {
+      if (!initialized) {
+        initScene();
+      }
+    });
+    resizeObserver.observe(container);
+
+    // 立即尝试初始化
+    initScene();
+
+    // Resize handler (在初始化之后设置)
     const handleResize = () => {
+      if (!initialized || !cameraRef.current || !rendererRef.current) return;
       const width = container.clientWidth;
       const height = container.clientHeight;
+      const viewSize = 6.5;
       const aspect = width / height;
-      camera.left = -viewSize * aspect;
-      camera.right = viewSize * aspect;
-      camera.top = viewSize;
-      camera.bottom = -viewSize;
-      camera.updateProjectionMatrix();
-      renderer.setSize(width, height);
+      cameraRef.current.left = -viewSize * aspect;
+      cameraRef.current.right = viewSize * aspect;
+      cameraRef.current.top = viewSize;
+      cameraRef.current.bottom = -viewSize;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(width, height);
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       console.log('SolarHouse3D: Cleaning up');
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       window.removeEventListener('resize', handleResize);
       if (animationIdRef.current) {
         cancelAnimationFrame(animationIdRef.current);
@@ -201,10 +229,6 @@ const SolarHouse3D = ({
         }
       }
     };
-  } catch (error) {
-    console.error('SolarHouse3D: Fatal initialization error', error);
-    setRenderError(true);
-  }
 }, []);
 
   // Update battery glow when percent changes
