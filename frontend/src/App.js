@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import SolarHouse3D from './SolarHouse3D';
 import WeatherDisplay from './WeatherDisplay';
@@ -49,75 +49,6 @@ const SectionContainer = ({ children, className = "" }) => (
 );
 
 // ============================================================
-// 日期选择器组件
-// ============================================================
-const DateRangePicker = ({ startDate, endDate, onStartDateChange, onEndDateChange, onApply }) => {
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="flex items-center gap-2">
-        <label className="text-gray-400 text-sm">开始:</label>
-        <input
-          type="date"
-          value={startDate}
-          onChange={(e) => onStartDateChange(e.target.value)}
-          className="bg-gray-700 text-white px-3 py-1.5 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-        />
-      </div>
-      <div className="flex items-center gap-2">
-        <label className="text-gray-400 text-sm">结束:</label>
-        <input
-          type="date"
-          value={endDate}
-          onChange={(e) => onEndDateChange(e.target.value)}
-          className="bg-gray-700 text-white px-3 py-1.5 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-        />
-      </div>
-      <button
-        onClick={() => onApply()}
-        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded font-medium transition-colors"
-      >
-        查询
-      </button>
-      <button
-        onClick={() => {
-          const today = getToday();
-          onStartDateChange(today);
-          onEndDateChange(today);
-          onApply(today, today);
-        }}
-        className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded text-sm transition-colors"
-      >
-        今天
-      </button>
-      <button
-        onClick={() => {
-          const today = formatDate(new Date());
-          const weekAgo = formatDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
-          onStartDateChange(weekAgo);
-          onEndDateChange(today);
-          onApply(weekAgo, today);
-        }}
-        className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded text-sm transition-colors"
-      >
-        最近7天
-      </button>
-      <button
-        onClick={() => {
-          const today = formatDate(new Date());
-          const monthAgo = formatDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
-          onStartDateChange(monthAgo);
-          onEndDateChange(today);
-          onApply(monthAgo, today);
-        }}
-        className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded text-sm transition-colors"
-      >
-        最近30天
-      </button>
-    </div>
-  );
-};
-
-// ============================================================
 // 状态卡片组件
 // ============================================================
 const StatCard = ({ title, value, unit, icon, color, subtitle }) => {
@@ -150,30 +81,7 @@ const StatCard = ({ title, value, unit, icon, color, subtitle }) => {
 // 模块一：实时监控
 // ============================================================
 const RealtimeSection = ({ currentData, error }) => {
-  // ========== DUMMY 数据 - 调试用，调完后删除 ==========
-  const dummyData = {
-    solar: 5.5,
-    grid_import: 0.8,
-    grid_export: 0.3,
-    battery_charge: 1.2,
-    battery_discharge: 0.5,
-    load: 4.2,
-    soc_inv: 77,
-    timestamp: new Date().toISOString()
-  };
-  
-  // 使用 dummy 数据（调试完后改回 currentData）
-  //const data = dummyData;  // 改回 currentData 使用真实数据
   const data = currentData;
-  
-  // 强制所有流动线可见（调试用）
-  // const solarToHome = true;
-  // const solarToBattery = true;
-  // const batteryToHome = true;
-  // const gridToHome = true;
-  // const solarToGrid = true;
-  // const batteryToGrid = true;
-  // ========== DUMMY 数据结束 ==========
     
   const solarToHome = currentData.solar > 0.01 && currentData.load > 0.01;
   const solarToBattery = currentData.solar > 0.01 && currentData.battery_charge > 0.01;
@@ -369,10 +277,8 @@ function App() {
     timestamp: null, connected: false
   });
 
-  const [historicalData, setHistoricalData] = useState([]);
   const [dailyData, setDailyData] = useState([]);
   const [dailyLoading, setDailyLoading] = useState(false);
-  //const [error, setError] = useState(null);
   const [realtimeError, setRealtimeError] = useState(null); 
   
   const [startDate, setStartDate] = useState(getToday());
@@ -387,19 +293,7 @@ function App() {
         const data = await response.json();
         setCurrentData(data);
         setRealtimeError(null);
-        
-        setHistoricalData(prev => {
-          const newData = [...prev, {
-            time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-            solar: data.solar,
-            load: data.load,
-            battery: data.battery_net,
-            grid: data.grid_export - data.grid_import
-          }];
-          return newData.slice(-60);
-        });
       } catch (err) {
-        //setError(`连接失败: ${err.message}`);
         setRealtimeError(`连接失败: ${err.message}`);
       }
     };
@@ -434,32 +328,6 @@ function App() {
     }
   }, [startDate, endDate]);
 
-  // 获取历史曲线数据
-  const fetchHistoryRange = useCallback(async (start, end) => {
-    const queryStart = start || startDate;
-    const queryEnd = end || endDate;
-    try {
-      const response = await fetch(`${API_BASE}/api/history/range?start_date=${queryStart}&end_date=${queryEnd}&limit=300`);
-      if (!response.ok) return;
-      const result = await response.json();
-      
-      if (result.data && result.data.length > 0) {
-        const chartData = result.data.map(d => ({
-          time: new Date(d.timestamp).toLocaleString('zh-CN', { 
-            month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' 
-          }),
-          solar: d.solar,
-          load: d.load,
-          battery: d.battery_net,
-          grid: d.grid_export - d.grid_import
-        }));
-        setHistoricalData(chartData);
-      }
-    } catch (err) {
-      console.error('Failed to fetch history range:', err);
-    }
-  }, [startDate, endDate]);
-
   // 初始加载 - 默认使用过去7天
   useEffect(() => {
     const today = getToday();
@@ -473,7 +341,6 @@ function App() {
   // 查询按钮处理
   const handleApply = (start, end) => {
     fetchDailyRange(start, end);
-    fetchHistoryRange(start, end);
   };
 
   return (
