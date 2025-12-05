@@ -229,27 +229,27 @@ def poll_inverter():
         try:
             # Read all registers
             pv_raw = read_u32(client, 1, unit_id)
-            grid_raw = read_s32(client, 1029, unit_id)
+            grid_import_raw = read_u32(client, 1021, unit_id)  # Grid import from Datalogger CT
+            grid_export_raw = read_u32(client, 1029, unit_id)  # Grid export from Datalogger CT
             load_raw = read_s32(client, 1037, unit_id)
             soc_inv = read_u16(client, 1014, unit_id)
             soc_bms = read_u16(client, 1086, unit_id)
             
-            # Convert to watts/kW
+            # Convert to kW (raw value is in 0.1W)
             pv = (pv_raw / 10.0 / 1000.0) if pv_raw is not None else 0
-            grid = (grid_raw / 10.0 / 1000.0) if grid_raw is not None else 0
+            grid_import = (grid_import_raw / 10.0 / 1000.0) if grid_import_raw is not None else 0
+            grid_export = (grid_export_raw / 10.0 / 1000.0) if grid_export_raw is not None else 0
             load_val = (load_raw / 10.0 / 1000.0) if load_raw is not None else 0
             
             # Calculate battery power using energy balance
-            if pv is not None and load_val is not None and grid is not None:
-                battery_net = pv - load_val - grid
+            # battery_net = solar + grid_import - grid_export - load
+            # positive = charging, negative = discharging
+            if pv is not None and load_val is not None:
+                battery_net = pv + grid_import - grid_export - load_val
                 battery_charge = max(battery_net, 0)
                 battery_discharge = max(-battery_net, 0)
-                grid_export = max(grid, 0)
-                grid_import = max(-grid, 0)
             else:
                 battery_net = battery_charge = battery_discharge = 0
-                grid_export = max(grid, 0) if grid else 0
-                grid_import = max(-grid, 0) if grid else 0
             
             timestamp = datetime.now().isoformat()
             
@@ -280,7 +280,7 @@ def poll_inverter():
             # Log to monthly CSV file
             log_to_csv(current_data)
             
-            print(f"📊 [{timestamp}] PV={pv:.2f}kW Load={load_val:.2f}kW Grid={grid:.2f}kW Batt={battery_net:.2f}kW SOC={soc_bms}%")
+            print(f"📊 [{timestamp}] PV={pv:.2f}kW Load={load_val:.2f}kW Import={grid_import:.2f}kW Export={grid_export:.2f}kW Batt={battery_net:.2f}kW SOC={soc_bms}%")
             
         except Exception as e:
             print(f"❌ Error polling inverter: {e}")
