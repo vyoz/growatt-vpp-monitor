@@ -102,6 +102,7 @@ const EnergyFlowCanvas = ({
   solarToBattery = false,
   batteryToHome = false,
   gridToHome = false,
+  gridToBattery = false,
   solarToGrid = false,
   batteryToGrid = false,
   // 各条线的功率值
@@ -109,6 +110,7 @@ const EnergyFlowCanvas = ({
   solarToBatteryPower = 0,
   solarToGridPower = 0,
   gridToHomePower = 0,
+  gridToBatteryPower = 0,
   batteryToHomePower = 0,
   batteryToGridPower = 0,
 }) => {
@@ -119,6 +121,7 @@ const EnergyFlowCanvas = ({
     solarHome: 0,
     solarBattery: 0,
     gridHome: 0,
+    gridBattery: 0,
     batteryHome: 0,
     batteryGrid: 0,
   });
@@ -169,6 +172,7 @@ const EnergyFlowCanvas = ({
       solarHome: 'M265,148 L265,176 L233,176',
       solarBattery: 'M250,135 L175,135 L175,155',
       gridHome: 'M190,169 L220,169',
+      gridBattery: 'M155,85 L130,85 L130,155 L158,155',
       batteryHome: 'M182,187 L220,187',
       batteryGrid: 'M170,152 L170,100 L155,100',
     };
@@ -179,6 +183,7 @@ const EnergyFlowCanvas = ({
       solarHome: getPathLength(pathDefinitions.solarHome),
       solarBattery: getPathLength(pathDefinitions.solarBattery),
       gridHome: getPathLength(pathDefinitions.gridHome),
+      gridBattery: getPathLength(pathDefinitions.gridBattery),
       batteryHome: getPathLength(pathDefinitions.batteryHome),
       batteryGrid: getPathLength(pathDefinitions.batteryGrid),
     };
@@ -189,6 +194,7 @@ const EnergyFlowCanvas = ({
       solarHome: pathToPoints(pathDefinitions.solarHome),
       solarBattery: pathToPoints(pathDefinitions.solarBattery),
       gridHome: pathToPoints(pathDefinitions.gridHome),
+      gridBattery: pathToPoints(pathDefinitions.gridBattery),
       batteryHome: pathToPoints(pathDefinitions.batteryHome),
       batteryGrid: pathToPoints(pathDefinitions.batteryGrid),
     };
@@ -276,6 +282,14 @@ const EnergyFlowCanvas = ({
         if (progressRef.current.gridHome > 1) progressRef.current.gridHome = 0;
       }
       
+      if (gridToBattery) {
+        drawComet(paths.gridBattery, progressRef.current.gridBattery, '#60a5fa');
+        const pixelsPerFrame = getFlowSpeed(gridToBatteryPower) / frameRate;
+        const progressIncrement = pixelsPerFrame / pathLengths.gridBattery;
+        progressRef.current.gridBattery += progressIncrement;
+        if (progressRef.current.gridBattery > 1) progressRef.current.gridBattery = 0;
+      }
+      
       // Battery flows (cyan #00e8bb)
       if (batteryToHome) {
         drawComet(paths.batteryHome, progressRef.current.batteryHome, '#00e8bb');
@@ -305,9 +319,9 @@ const EnergyFlowCanvas = ({
       }
     };
   }, [
-    solarToHome, solarToBattery, batteryToHome, gridToHome, solarToGrid, batteryToGrid,
+    solarToHome, solarToBattery, batteryToHome, gridToHome, gridToBattery, solarToGrid, batteryToGrid,
     solarToHomePower, solarToBatteryPower, solarToGridPower, 
-    gridToHomePower, batteryToHomePower, batteryToGridPower
+    gridToHomePower, gridToBatteryPower, batteryToHomePower, batteryToGridPower
   ]);
 
   return (

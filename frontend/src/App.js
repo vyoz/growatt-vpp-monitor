@@ -86,15 +86,22 @@ const RealtimeSection = ({ currentData, error }) => {
   const solarToHome = currentData.solar > 0.01 && currentData.load > 0.01;
   const solarToBattery = currentData.solar > 0.01 && currentData.battery_charge > 0.01;
   const batteryToHome = currentData.battery_discharge > 0.01 && currentData.load > 0.01;
-  const gridToHome = currentData.grid_import > 0.01 && currentData.load > 0.01;
   const solarToGrid = currentData.solar > 0.01 && currentData.grid_export > 0.01;
   const batteryToGrid = currentData.battery_discharge > 0.01 && currentData.grid_export > 0.01;
   
+  // 计算 grid 的分流：grid 可能同时供给 load 和 battery
+  // 当 solar 不够供给 battery_charge 时，差额由 grid 补充
+  const solarToBatteryActual = Math.min(currentData.solar, currentData.battery_charge);
+  const gridToBatteryPower = Math.max(0, currentData.battery_charge - solarToBatteryActual);
+  const gridToHomePower = Math.max(0, currentData.grid_import - gridToBatteryPower);
+  
+  const gridToHome = gridToHomePower > 0.01 && currentData.load > 0.01;
+  const gridToBattery = gridToBatteryPower > 0.01 && currentData.battery_charge > 0.01;
+  
   // 计算各条线的功率值（用于动画速度）
   const solarToHomePower = Math.min(currentData.solar, currentData.load);
-  const solarToBatteryPower = currentData.battery_charge;
+  const solarToBatteryPower = solarToBatteryActual;
   const solarToGridPower = currentData.grid_export;
-  const gridToHomePower = currentData.grid_import;
   const batteryToHomePower = currentData.battery_discharge;
   const batteryToGridPower = Math.min(currentData.battery_discharge, currentData.grid_export);
   
@@ -143,12 +150,14 @@ const RealtimeSection = ({ currentData, error }) => {
             solarToBattery={solarToBattery}
             batteryToHome={batteryToHome}
             gridToHome={gridToHome}
+            gridToBattery={gridToBattery}
             solarToGrid={solarToGrid}
             batteryToGrid={batteryToGrid}
             solarToHomePower={solarToHomePower}
             solarToBatteryPower={solarToBatteryPower}
             solarToGridPower={solarToGridPower}
             gridToHomePower={gridToHomePower}
+            gridToBatteryPower={gridToBatteryPower}
             batteryToHomePower={batteryToHomePower}
             batteryToGridPower={batteryToGridPower}
           />

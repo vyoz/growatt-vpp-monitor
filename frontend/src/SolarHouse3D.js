@@ -54,6 +54,7 @@ const SolarHouse3D = ({
   solarToBattery = false,
   batteryToHome = false,
   gridToHome = false,
+  gridToBattery = false,
   solarToGrid = false,
   batteryToGrid = false,
   // 各条线的功率值（用于动画速度）
@@ -61,6 +62,7 @@ const SolarHouse3D = ({
   solarToBatteryPower = 0,
   solarToGridPower = 0,
   gridToHomePower = 0,
+  gridToBatteryPower = 0,
   batteryToHomePower = 0,
   batteryToGridPower = 0,
 }) => {
@@ -687,6 +689,7 @@ const SolarHouse3D = ({
         {solarToHome && <path d="M265,148 L265,176 L233,176" className="conn-line" />}
         {solarToBattery && <path d="M250,135 L175,135 L175,155" className="conn-line" />}
         {gridToHome && <path d="M190,169 L220,169" className="conn-line" />}
+        {gridToBattery && <path d="M155,85 L130,85 L130,155 L158,155" className="conn-line" />}
         {batteryToHome && <path d="M182,187 L220,187" className="conn-line" />}
         {batteryToGrid && <path d="M170,152 L170,100 L155,100" className="conn-line" />}
       </svg>
@@ -697,12 +700,14 @@ const SolarHouse3D = ({
         solarToBattery={solarToBattery}
         batteryToHome={batteryToHome}
         gridToHome={gridToHome}
+        gridToBattery={gridToBattery}
         solarToGrid={solarToGrid}
         batteryToGrid={batteryToGrid}
         solarToHomePower={solarToHomePower}
         solarToBatteryPower={solarToBatteryPower}
         solarToGridPower={solarToGridPower}
         gridToHomePower={gridToHomePower}
+        gridToBatteryPower={gridToBatteryPower}
         batteryToHomePower={batteryToHomePower}
         batteryToGridPower={batteryToGridPower}
       />
