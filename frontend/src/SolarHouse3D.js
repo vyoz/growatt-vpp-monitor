@@ -1,70 +1,251 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import EnergyFlowCanvas from './EnergyFlowCanvas';
 
-// 格式化功率显示 - 统一使用 kW
+// ============================================================
+// 能量流动路径定义 - 只需要在这里修改一次
+// ============================================================
+const ENERGY_FLOW_PATHS = {
+  solarGrid: 'M380,95 L380,70 L155,70',
+  solarHome: 'M400,130 L430,160 L430,178',
+  solarBattery: 'M380,130 L300,130 L260,165',
+  gridHome: 'M155,100 L155,178 L280,178 L280,165 L430,165 L430,178',
+  gridBattery: 'M155,100 L155,178 L245,178',
+  batteryHome: 'M270,178 L430,178',
+  batteryGrid: 'M245,165 L155,165 L155,100',
+};
+
+// ============================================================
+// 工具函数
+// ============================================================
+
 const formatPower = (value) => {
   if (value === undefined || value === null) return { value: '0.00', unit: 'kW' };
   return { value: value.toFixed(2), unit: 'kW' };
 };
 
-// 根据功率计算动画速度 (功率越大速度越快，单位：像素/秒)
 const getFlowSpeed = (power) => {
   const absPower = Math.abs(power);
-  if (absPower <= 0.01) return 20; // 最慢速度
+  if (absPower <= 0.01) return 20;
   const maxPower = 6;
-  const minSpeed = 10;  // 最慢：10 像素/秒
-  const maxSpeed = 70; // 最快：50 像素/秒
+  const minSpeed = 20;
+  const maxSpeed = 80;
   const ratio = Math.min(absPower / maxPower, 1);
-  const speed = minSpeed + ratio * (maxSpeed - minSpeed);
-  return speed;
+  return minSpeed + ratio * (maxSpeed - minSpeed);
 };
 
-// 计算路径长度（近似值）
-const getPathLength = (pathId) => {
-  const pathLengths = {
-    'pathSolarGrid': 115,      // M250,90 L250,70 L155,70
-    'pathSolarHome': 62,       // M265,148 L265,176 L240,176
-    'pathSolarBattery': 95,    // M250,135 L175,135 L175,155
-    'pathGridHome': 30,        // M190,169 L220,169
-    'pathBatteryHome': 40,     // M180,187 L220,187
-    'pathBatteryGrid': 104,    // M170,152 L170,100 L155,100
-  };
-  return pathLengths[pathId] || 50;
+const getPathLength = (pathString) => {
+  const commands = pathString.match(/[ML][^ML]*/g);
+  if (!commands) return 0;
+  let totalLength = 0;
+  let currentX = 0, currentY = 0;
+  
+  commands.forEach(cmd => {
+    const type = cmd[0];
+    const coords = cmd.slice(1).trim().split(/[\s,]+/).map(Number);
+    if (type === 'M') {
+      currentX = coords[0];
+      currentY = coords[1];
+    } else if (type === 'L') {
+      const dx = coords[0] - currentX;
+      const dy = coords[1] - currentY;
+      totalLength += Math.sqrt(dx * dx + dy * dy);
+      currentX = coords[0];
+      currentY = coords[1];
+    }
+  });
+  return totalLength;
 };
 
-// 根据路径长度和速度计算动画时长
-const getAnimationDuration = (pathId, power) => {
-  const pathLength = getPathLength(pathId);
-  const speed = getFlowSpeed(power);
-  const duration = pathLength / speed;
-  return duration.toFixed(2);
+const pathToPoints = (pathString, numPoints = 100) => {
+  const commands = pathString.match(/[ML][^ML]*/g);
+  if (!commands) return [];
+  const points = [];
+  let currentX = 0, currentY = 0;
+  let segments = [];
+  
+  commands.forEach(cmd => {
+    const type = cmd[0];
+    const coords = cmd.slice(1).trim().split(/[\s,]+/).map(Number);
+    if (type === 'M') {
+      currentX = coords[0];
+      currentY = coords[1];
+    } else if (type === 'L') {
+      segments.push({ x1: currentX, y1: currentY, x2: coords[0], y2: coords[1] });
+      currentX = coords[0];
+      currentY = coords[1];
+    }
+  });
+  
+  const lengths = segments.map(seg => Math.sqrt((seg.x2 - seg.x1) ** 2 + (seg.y2 - seg.y1) ** 2));
+  const totalLength = lengths.reduce((a, b) => a + b, 0);
+  
+  for (let i = 0; i <= numPoints; i++) {
+    const targetDist = (i / numPoints) * totalLength;
+    let accumulatedDist = 0;
+    for (let j = 0; j < segments.length; j++) {
+      if (accumulatedDist + lengths[j] >= targetDist) {
+        const t = (targetDist - accumulatedDist) / lengths[j];
+        const seg = segments[j];
+        points.push({ x: seg.x1 + t * (seg.x2 - seg.x1), y: seg.y1 + t * (seg.y2 - seg.y1) });
+        break;
+      }
+      accumulatedDist += lengths[j];
+    }
+  }
+  return points;
 };
 
+// ============================================================
+// 能量流动 Canvas 组件
+// ============================================================
+const EnergyFlowCanvas = ({
+  solarToHome, solarToBattery, batteryToHome, gridToHome, gridToBattery, solarToGrid, batteryToGrid,
+  solarToHomePower, solarToBatteryPower, solarToGridPower, gridToHomePower, gridToBatteryPower, batteryToHomePower, batteryToGridPower,
+}) => {
+  const canvasRef = useRef(null);
+  const animationRef = useRef(null);
+  const progressRef = useRef({
+    solarGrid: 0, solarHome: 0, solarBattery: 0,
+    gridHome: 0, gridBattery: 0, batteryHome: 0, batteryGrid: 0,
+  });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const viewBoxWidth = 400;
+    const viewBoxHeight = 320;
+    let scale = 1, offsetX = 0, offsetY = 0;
+    
+    const updateCanvasSize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      const scaleX = rect.width / viewBoxWidth;
+      const scaleY = rect.height / viewBoxHeight;
+      scale = Math.min(scaleX, scaleY);
+      offsetX = (rect.width - viewBoxWidth * scale) / 2;
+      offsetY = (rect.height - viewBoxHeight * scale) / 2;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    
+    const resizeObserver = new ResizeObserver(updateCanvasSize);
+    resizeObserver.observe(canvas);
+    updateCanvasSize();
+
+    // 使用共享的路径定义
+    const pathLengths = {};
+    const paths = {};
+    Object.keys(ENERGY_FLOW_PATHS).forEach(key => {
+      pathLengths[key] = getPathLength(ENERGY_FLOW_PATHS[key]);
+      paths[key] = pathToPoints(ENERGY_FLOW_PATHS[key]);
+    });
+
+    const cometLength = 15;
+    const cometWidth = 3;
+
+    const drawComet = (points, progress, color) => {
+      if (!points || points.length === 0) return;
+      const currentIndex = Math.floor(progress * (points.length - 1));
+      const startIndex = Math.max(0, currentIndex - cometLength);
+      
+      for (let i = startIndex; i <= currentIndex; i++) {
+        const point = points[i];
+        const distanceFromHead = currentIndex - i;
+        const opacity = 1 - (distanceFromHead / cometLength);
+        const width = cometWidth * opacity;
+        const r = parseInt(color.slice(1, 3), 16);
+        const g = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
+        
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+        ctx.lineWidth = width * scale;
+        ctx.lineCap = 'round';
+        ctx.shadowBlur = 8 * opacity * scale;
+        ctx.shadowColor = color;
+        
+        if (i > startIndex) {
+          ctx.beginPath();
+          ctx.moveTo(points[i - 1].x * scale + offsetX, points[i - 1].y * scale + offsetY);
+          ctx.lineTo(point.x * scale + offsetX, point.y * scale + offsetY);
+          ctx.stroke();
+        }
+      }
+      ctx.shadowBlur = 0;
+    };
+
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const frameRate = 60;
+      
+      // Solar flows (yellow)
+      if (solarToGrid) {
+        drawComet(paths.solarGrid, progressRef.current.solarGrid, '#fbbf24');
+        progressRef.current.solarGrid += getFlowSpeed(solarToGridPower) / frameRate / pathLengths.solarGrid;
+        if (progressRef.current.solarGrid > 1) progressRef.current.solarGrid = 0;
+      }
+      if (solarToHome) {
+        drawComet(paths.solarHome, progressRef.current.solarHome, '#fbbf24');
+        progressRef.current.solarHome += getFlowSpeed(solarToHomePower) / frameRate / pathLengths.solarHome;
+        if (progressRef.current.solarHome > 1) progressRef.current.solarHome = 0;
+      }
+      if (solarToBattery) {
+        drawComet(paths.solarBattery, progressRef.current.solarBattery, '#fbbf24');
+        progressRef.current.solarBattery += getFlowSpeed(solarToBatteryPower) / frameRate / pathLengths.solarBattery;
+        if (progressRef.current.solarBattery > 1) progressRef.current.solarBattery = 0;
+      }
+      
+      // Grid flows (blue)
+      if (gridToHome) {
+        drawComet(paths.gridHome, progressRef.current.gridHome, '#60a5fa');
+        progressRef.current.gridHome += getFlowSpeed(gridToHomePower) / frameRate / pathLengths.gridHome;
+        if (progressRef.current.gridHome > 1) progressRef.current.gridHome = 0;
+      }
+      if (gridToBattery) {
+        drawComet(paths.gridBattery, progressRef.current.gridBattery, '#60a5fa');
+        progressRef.current.gridBattery += getFlowSpeed(gridToBatteryPower) / frameRate / pathLengths.gridBattery;
+        if (progressRef.current.gridBattery > 1) progressRef.current.gridBattery = 0;
+      }
+      
+      // Battery flows (cyan)
+      if (batteryToHome) {
+        drawComet(paths.batteryHome, progressRef.current.batteryHome, '#00e8bb');
+        progressRef.current.batteryHome += getFlowSpeed(batteryToHomePower) / frameRate / pathLengths.batteryHome;
+        if (progressRef.current.batteryHome > 1) progressRef.current.batteryHome = 0;
+      }
+      if (batteryToGrid) {
+        drawComet(paths.batteryGrid, progressRef.current.batteryGrid, '#00e8bb');
+        progressRef.current.batteryGrid += getFlowSpeed(batteryToGridPower) / frameRate / pathLengths.batteryGrid;
+        if (progressRef.current.batteryGrid > 1) progressRef.current.batteryGrid = 0;
+      }
+      
+      animationRef.current = requestAnimationFrame(animate);
+    };
+    
+    animate();
+
+    return () => {
+      resizeObserver.disconnect();
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [solarToHome, solarToBattery, batteryToHome, gridToHome, gridToBattery, solarToGrid, batteryToGrid,
+      solarToHomePower, solarToBatteryPower, solarToGridPower, gridToHomePower, gridToBatteryPower, batteryToHomePower, batteryToGridPower]);
+
+  return <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 6 }} />;
+};
+
+// ============================================================
+// 主组件 SolarHouse3D
+// ============================================================
 const SolarHouse3D = ({ 
-  solar = 0,
-  gridImport = 0,
-  gridExport = 0,
-  batteryCharge = 0,
-  batteryDischarge = 0,
-  load = 0,
-  batteryPercent = 0,
-  // 能量流动状态
-  solarToHome = false,
-  solarToBattery = false,
-  batteryToHome = false,
-  gridToHome = false,
-  gridToBattery = false,
-  solarToGrid = false,
-  batteryToGrid = false,
-  // 各条线的功率值（用于动画速度）
-  solarToHomePower = 0,
-  solarToBatteryPower = 0,
-  solarToGridPower = 0,
-  gridToHomePower = 0,
-  gridToBatteryPower = 0,
-  batteryToHomePower = 0,
-  batteryToGridPower = 0,
+  solar = 0, gridImport = 0, gridExport = 0,
+  batteryCharge = 0, batteryDischarge = 0, load = 0, batteryPercent = 0,
+  solarToHome = false, solarToBattery = false, batteryToHome = false,
+  gridToHome = false, gridToBattery = false, solarToGrid = false, batteryToGrid = false,
+  solarToHomePower = 0, solarToBatteryPower = 0, solarToGridPower = 0,
+  gridToHomePower = 0, gridToBatteryPower = 0, batteryToHomePower = 0, batteryToGridPower = 0,
 }) => {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
@@ -74,7 +255,6 @@ const SolarHouse3D = ({
   const animationIdRef = useRef(null);
   const [renderError, setRenderError] = useState(false);
 
-  // 格式化各个功率值
   const solarFormatted = formatPower(solar);
   const gridInFormatted = formatPower(gridImport);
   const gridOutFormatted = formatPower(gridExport);
@@ -84,7 +264,6 @@ const SolarHouse3D = ({
 
   useEffect(() => {
     if (!containerRef.current) {
-      console.warn('SolarHouse3D: Container ref not available');
       setRenderError(true);
       return;
     }
@@ -99,103 +278,79 @@ const SolarHouse3D = ({
       const width = container.clientWidth || container.offsetWidth;
       const height = container.clientHeight || container.offsetHeight;
 
-      if (width < 10 || height < 10) {
-        console.warn('SolarHouse3D: Container too small, waiting...', { width, height });
-        return;
-      }
+      if (width < 10 || height < 10) return;
 
-      console.log('SolarHouse3D: Initializing', { width, height });
       setRenderError(false);
       initialized = true;
 
       try {
-      // Scene
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x2d323d);
-      sceneRef.current = scene;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x2d323d);
+        sceneRef.current = scene;
 
-      // Camera - 模型大小调整
-      const aspect = width / height;
-      const viewSize = 6.5;
-      const camera = new THREE.OrthographicCamera(
-        -viewSize * aspect, viewSize * aspect,
-        viewSize, -viewSize,
-        0.1, 1000
-      );
-      camera.position.set(10, 7, 10);
-      camera.lookAt(-2, 0, 0);
-      cameraRef.current = camera;
+        const aspect = width / height;
+        const viewSize = 6.5;
+        const camera = new THREE.OrthographicCamera(
+          -viewSize * aspect, viewSize * aspect, viewSize, -viewSize, 0.1, 1000
+        );
+        camera.position.set(10, 7, 10);
+        camera.lookAt(-2, 0, 0);
+        cameraRef.current = camera;
 
-      // Renderer with error handling
-      let renderer;
-      try {
-        renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(width, height);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        container.appendChild(renderer.domElement);
-        rendererRef.current = renderer;
-        console.log('SolarHouse3D: WebGL renderer initialized successfully');
+        let renderer;
+        try {
+          renderer = new THREE.WebGLRenderer({ antialias: true });
+          renderer.setSize(width, height);
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+          renderer.shadowMap.enabled = true;
+          renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+          container.appendChild(renderer.domElement);
+          rendererRef.current = renderer;
+        } catch (error) {
+          setRenderError(true);
+          return;
+        }
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 20, 10);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+
+        const fillLight = new THREE.DirectionalLight(0x8899bb, 0.4);
+        fillLight.position.set(-10, 5, -10);
+        scene.add(fillLight);
+
+        try {
+          createScene(scene, batteryPercent);
+        } catch (error) {
+          setRenderError(true);
+          return;
+        }
+
+        const animate = () => {
+          try {
+            animationIdRef.current = requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+          } catch (error) {
+            cancelAnimationFrame(animationIdRef.current);
+          }
+        };
+        animate();
+
       } catch (error) {
-        console.error('SolarHouse3D: Failed to initialize WebGL renderer', error);
         setRenderError(true);
-        return;
-      }
-
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-    scene.add(ambientLight);
-
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 20, 10);
-    directionalLight.castShadow = true;
-    scene.add(directionalLight);
-
-    const fillLight = new THREE.DirectionalLight(0x8899bb, 0.4);
-    fillLight.position.set(-10, 5, -10);
-    scene.add(fillLight);
-
-    // Create Scene with error handling
-    try {
-      createScene(scene, batteryPercent);
-      console.log('SolarHouse3D: Scene created successfully');
-    } catch (error) {
-      console.error('SolarHouse3D: Failed to create scene', error);
-      setRenderError(true);
-      return;
-    }
-
-    // Animation with error handling
-    const animate = () => {
-      try {
-        animationIdRef.current = requestAnimationFrame(animate);
-        renderer.render(scene, camera);
-      } catch (error) {
-        console.error('SolarHouse3D: Animation error', error);
-        cancelAnimationFrame(animationIdRef.current);
       }
     };
-    animate();
 
-      } catch (error) {
-        console.error('SolarHouse3D: Fatal initialization error', error);
-        setRenderError(true);
-      }
-    }; // end of initScene
-
-    // 使用 ResizeObserver 检测容器尺寸变化
     resizeObserver = new ResizeObserver(() => {
-      if (!initialized) {
-        initScene();
-      }
+      if (!initialized) initScene();
     });
     resizeObserver.observe(container);
-
-    // 立即尝试初始化
     initScene();
 
-    // Resize handler (在初始化之后设置)
     const handleResize = () => {
       if (!initialized || !cameraRef.current || !rendererRef.current) return;
       const width = container.clientWidth;
@@ -212,35 +367,26 @@ const SolarHouse3D = ({
     window.addEventListener('resize', handleResize);
 
     return () => {
-      console.log('SolarHouse3D: Cleaning up');
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
+      if (resizeObserver) resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
-      if (animationIdRef.current) {
-        cancelAnimationFrame(animationIdRef.current);
-      }
+      if (animationIdRef.current) cancelAnimationFrame(animationIdRef.current);
       if (rendererRef.current) {
         try {
           if (container && container.contains(rendererRef.current.domElement)) {
             container.removeChild(rendererRef.current.domElement);
           }
           rendererRef.current.dispose();
-        } catch (error) {
-          console.warn('SolarHouse3D: Cleanup error', error);
-        }
+        } catch (error) {}
       }
     };
-}, []);
+  }, []);
 
-  // Update battery glow when percent changes
   useEffect(() => {
     if (batteryGlowMeshRef.current) {
-      const maxH = 0.9;
-      const h = (batteryPercent / 100) * maxH;
-      batteryGlowMeshRef.current.geometry.dispose();
-      batteryGlowMeshRef.current.geometry = new THREE.BoxGeometry(0.58, h, 0.03);
-      batteryGlowMeshRef.current.position.y = 0.35 + h / 2;
+      const maxGlowH = 0.9;
+      const newH = (batteryPercent / 100) * maxGlowH;
+      batteryGlowMeshRef.current.scale.y = newH / 0.9 || 0.01;
+      batteryGlowMeshRef.current.position.y = 0.35 + newH / 2;
     }
   }, [batteryPercent]);
 
@@ -289,35 +435,23 @@ const SolarHouse3D = ({
     const houseGroup = new THREE.Group();
 
     // Front wall
-    const frontWall = new THREE.Mesh(
-      new THREE.BoxGeometry(wallWidth, wallHeight, 0.15),
-      wallMaterial
-    );
+    const frontWall = new THREE.Mesh(new THREE.BoxGeometry(wallWidth, wallHeight, 0.15), wallMaterial);
     frontWall.position.set(0, wallHeight / 2, wallDepth / 2);
     frontWall.castShadow = true;
     houseGroup.add(frontWall);
 
     // Back wall
-    const backWall = new THREE.Mesh(
-      new THREE.BoxGeometry(wallWidth, wallHeight, 0.15),
-      wallSideMaterial
-    );
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(wallWidth, wallHeight, 0.15), wallSideMaterial);
     backWall.position.set(0, wallHeight / 2, -wallDepth / 2);
     houseGroup.add(backWall);
 
     // Left wall
-    const leftWall = new THREE.Mesh(
-      new THREE.BoxGeometry(0.15, wallHeight, wallDepth),
-      wallSideMaterial
-    );
+    const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.15, wallHeight, wallDepth), wallSideMaterial);
     leftWall.position.set(-wallWidth / 2, wallHeight / 2, 0);
     houseGroup.add(leftWall);
 
     // Right wall
-    const rightWall = new THREE.Mesh(
-      new THREE.BoxGeometry(0.15, wallHeight, wallDepth),
-      wallMaterial
-    );
+    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.15, wallHeight, wallDepth), wallMaterial);
     rightWall.position.set(wallWidth / 2, wallHeight / 2, 0);
     houseGroup.add(rightWall);
 
@@ -325,31 +459,19 @@ const SolarHouse3D = ({
     const roofLength = Math.sqrt(roofHeight * roofHeight + (wallWidth / 2) * (wallWidth / 2)) + eaveOverhang;
     const roofDepth = wallDepth + eaveOverhang * 2;
 
-    // Left roof
-    const leftRoof = new THREE.Mesh(
-      new THREE.BoxGeometry(roofLength, 0.12, roofDepth),
-      roofMaterial
-    );
+    const leftRoof = new THREE.Mesh(new THREE.BoxGeometry(roofLength, 0.12, roofDepth), roofMaterial);
     leftRoof.position.set(-wallWidth / 4 - eaveOverhang * 0.2, wallHeight + roofHeight / 2, 0);
     leftRoof.rotation.z = roofAngle;
     leftRoof.castShadow = true;
     houseGroup.add(leftRoof);
 
-    // Right roof
-    const rightRoof = new THREE.Mesh(
-      new THREE.BoxGeometry(roofLength, 0.12, roofDepth),
-      roofMaterial
-    );
+    const rightRoof = new THREE.Mesh(new THREE.BoxGeometry(roofLength, 0.12, roofDepth), roofMaterial);
     rightRoof.position.set(wallWidth / 4 + eaveOverhang * 0.2, wallHeight + roofHeight / 2, 0);
     rightRoof.rotation.z = -roofAngle;
     rightRoof.castShadow = true;
     houseGroup.add(rightRoof);
 
-    // Ridge
-    const ridge = new THREE.Mesh(
-      new THREE.BoxGeometry(0.15, 0.15, roofDepth),
-      roofMaterial
-    );
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, roofDepth), roofMaterial);
     ridge.position.set(0, wallHeight + roofHeight + 0.1, 0);
     houseGroup.add(ridge);
 
@@ -419,30 +541,30 @@ const SolarHouse3D = ({
     solarGroup.position.set(wallWidth / 4 + 0.3, wallHeight + roofHeight / 2 + 0.15, 0);
     houseGroup.add(solarGroup);
 
-    // Window
+    // Window - on right wall facing carport
     const windowGroup = new THREE.Group();
     const winBg = new THREE.Mesh(
-      new THREE.BoxGeometry(1.1, 1.4, 0.1),
+      new THREE.BoxGeometry(0.1, 1.4, 1.1),
       new THREE.MeshStandardMaterial({ color: 0x2a2f38 })
     );
     windowGroup.add(winBg);
 
-    const glassGeo = new THREE.BoxGeometry(0.45, 0.55, 0.08);
-    [[-0.26, 0.32], [0.26, 0.32], [-0.26, -0.32], [0.26, -0.32]].forEach(([x, y]) => {
+    const glassGeo = new THREE.BoxGeometry(0.08, 0.55, 0.45);
+    [[-0.32, 0.26], [-0.32, -0.26], [0.32, 0.26], [0.32, -0.26]].forEach(([y, z]) => {
       const glass = new THREE.Mesh(glassGeo, windowMaterial);
-      glass.position.set(x, y, 0.05);
+      glass.position.set(0.05, y, z);
       windowGroup.add(glass);
     });
 
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a4048 });
-    const crossH = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.08, 0.12), frameMat);
-    crossH.position.z = 0.06;
+    const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 1.05), frameMat);
+    crossH.position.x = 0.06;
     windowGroup.add(crossH);
-    const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.35, 0.12), frameMat);
-    crossV.position.z = 0.06;
+    const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.35, 0.08), frameMat);
+    crossV.position.x = 0.06;
     windowGroup.add(crossV);
 
-    windowGroup.position.set(0.8, 1.5, wallDepth / 2 + 0.08);
+    windowGroup.position.set(wallWidth / 2 + 0.08, 1.5, 0.5);
     houseGroup.add(windowGroup);
 
     houseGroup.position.set(1.5, 0, 0);
@@ -479,7 +601,7 @@ const SolarHouse3D = ({
     led.position.set(0, 1.35, 0.24);
     batteryGroup.add(led);
 
-    batteryGroup.position.set(-0.5, 0, 2.8);
+    batteryGroup.position.set(0.8, 0, 2.4);
     scene.add(batteryGroup);
 
     // Inverter
@@ -501,7 +623,7 @@ const SolarHouse3D = ({
     invLed.position.set(0, -0.12, 0.09);
     inverterGroup.add(invLed);
 
-    inverterGroup.position.set(0.6, 1.1, 2.8);
+    inverterGroup.position.set(2.2, 1.3, 2.3);
     scene.add(inverterGroup);
 
     // Power pole
@@ -534,19 +656,6 @@ const SolarHouse3D = ({
     poleGroup.position.set(-3.5, 0, 1.5);
     scene.add(poleGroup);
 
-    // Wire
-    const wirePoints = [
-      new THREE.Vector3(-3.5, 4.2, 1.5),
-      new THREE.Vector3(-2, 3, 2),
-      new THREE.Vector3(0.6, 1.4, 2.8)
-    ];
-    const wireCurve = new THREE.CatmullRomCurve3(wirePoints);
-    const wire = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(wireCurve.getPoints(30)),
-      new THREE.LineBasicMaterial({ color: 0x555555 })
-    );
-    scene.add(wire);
-
     // Carport
     const carportGroup = new THREE.Group();
     const pillarGeo = new THREE.BoxGeometry(0.08, 1.9, 0.08);
@@ -563,7 +672,7 @@ const SolarHouse3D = ({
     cpRoof.castShadow = true;
     carportGroup.add(cpRoof);
 
-    carportGroup.position.set(4.2, 0, 0.3);
+    carportGroup.position.set(5.0, 0, -0.6);
     scene.add(carportGroup);
 
     // Car
@@ -597,14 +706,13 @@ const SolarHouse3D = ({
       carGroup.add(wheel);
     });
 
-    carGroup.position.set(4.2, 0, 0.3);
+    carGroup.position.set(5.0, 0, -0.5);
     carGroup.rotation.y = -0.25;
     scene.add(carGroup);
   };
 
   return (
     <div className="relative w-full h-full min-h-[280px]" style={{ background: '#2d323d' }}>
-      {/* Error fallback UI */}
       {renderError && (
         <div className="absolute inset-0 flex items-center justify-center z-20">
           <div className="text-center text-gray-400">
@@ -615,7 +723,7 @@ const SolarHouse3D = ({
         </div>
       )}
       
-      {/* Labels - 自动堆叠，不留空位 */}
+      {/* Labels */}
       <div className="absolute top-[10px] left-[10px] flex flex-col gap-2 z-10">
         {solar > 0.01 && (
           <div className="text-white">
@@ -625,9 +733,6 @@ const SolarHouse3D = ({
             </div>
           </div>
         )}
-        
-        
-        
         {batteryCharge > 0.01 && (
           <div className="text-white">
             <div className="text-[10px] text-white/50">Battery Charge</div>
@@ -636,7 +741,6 @@ const SolarHouse3D = ({
             </div>
           </div>
         )}
-        
         {batteryDischarge > 0.01 && (
           <div className="text-white">
             <div className="text-[10px] text-white/50">Battery Discharge</div>
@@ -645,7 +749,6 @@ const SolarHouse3D = ({
             </div>
           </div>
         )}
-        
         {load > 0.01 && (
           <div className="text-white">
             <div className="text-[10px] text-white/50">Load</div>
@@ -654,7 +757,6 @@ const SolarHouse3D = ({
             </div>
           </div>
         )}
-
         {gridImport > 0.01 && (
           <div className="text-white">
             <div className="text-[10px] text-white/50">Grid In</div>
@@ -663,7 +765,6 @@ const SolarHouse3D = ({
             </div>
           </div>
         )}
-        
         {gridExport > 0.01 && (
           <div className="text-white">
             <div className="text-[10px] text-white/50">Grid Out</div>
@@ -674,42 +775,27 @@ const SolarHouse3D = ({
         )}
       </div>
 
-      {/* SVG Connection Lines - 调整为紧凑版viewBox */}
+      {/* SVG Connection Lines - 使用共享的路径定义 */}
       <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[5]" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet">
         <style>{`
-          .conn-line {
-            stroke: rgba(255,255,255,0.2);
-            stroke-width: 1;
-            fill: none;
-          }
+          .conn-line { stroke: rgba(255,255,255,0.2); stroke-width: 1; fill: none; }
         `}</style>
-        
-        {/* Static connection lines (subtle background) */}
-        {solarToGrid && <path d="M250,90 L250,70 L155,70" className="conn-line" />}
-        {solarToHome && <path d="M265,148 L265,176 L233,176" className="conn-line" />}
-        {solarToBattery && <path d="M250,135 L175,135 L175,155" className="conn-line" />}
-        {gridToHome && <path d="M190,169 L220,169" className="conn-line" />}
-        {gridToBattery && <path d="M155,85 L130,85 L130,155 L158,155" className="conn-line" />}
-        {batteryToHome && <path d="M182,187 L220,187" className="conn-line" />}
-        {batteryToGrid && <path d="M170,152 L170,100 L155,100" className="conn-line" />}
+        {solarToGrid && <path d={ENERGY_FLOW_PATHS.solarGrid} className="conn-line" />}
+        {solarToHome && <path d={ENERGY_FLOW_PATHS.solarHome} className="conn-line" />}
+        {solarToBattery && <path d={ENERGY_FLOW_PATHS.solarBattery} className="conn-line" />}
+        {gridToHome && <path d={ENERGY_FLOW_PATHS.gridHome} className="conn-line" />}
+        {gridToBattery && <path d={ENERGY_FLOW_PATHS.gridBattery} className="conn-line" />}
+        {batteryToHome && <path d={ENERGY_FLOW_PATHS.batteryHome} className="conn-line" />}
+        {batteryToGrid && <path d={ENERGY_FLOW_PATHS.batteryGrid} className="conn-line" />}
       </svg>
 
       {/* Canvas Energy Flow with Comets */}
       <EnergyFlowCanvas
-        solarToHome={solarToHome}
-        solarToBattery={solarToBattery}
-        batteryToHome={batteryToHome}
-        gridToHome={gridToHome}
-        gridToBattery={gridToBattery}
-        solarToGrid={solarToGrid}
-        batteryToGrid={batteryToGrid}
-        solarToHomePower={solarToHomePower}
-        solarToBatteryPower={solarToBatteryPower}
-        solarToGridPower={solarToGridPower}
-        gridToHomePower={gridToHomePower}
-        gridToBatteryPower={gridToBatteryPower}
-        batteryToHomePower={batteryToHomePower}
-        batteryToGridPower={batteryToGridPower}
+        solarToHome={solarToHome} solarToBattery={solarToBattery} batteryToHome={batteryToHome}
+        gridToHome={gridToHome} gridToBattery={gridToBattery} solarToGrid={solarToGrid} batteryToGrid={batteryToGrid}
+        solarToHomePower={solarToHomePower} solarToBatteryPower={solarToBatteryPower} solarToGridPower={solarToGridPower}
+        gridToHomePower={gridToHomePower} gridToBatteryPower={gridToBatteryPower}
+        batteryToHomePower={batteryToHomePower} batteryToGridPower={batteryToGridPower}
       />
 
       {/* Three.js Canvas Container */}

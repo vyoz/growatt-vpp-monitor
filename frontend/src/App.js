@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import SolarHouse3D from './SolarHouse3D';
+import SolarHouseImage from './SolarHouseImage';
 import WeatherDisplay from './WeatherDisplay';
 import SankeyFlow from './SankeyFlow';
 import DailyEarnings from './DailyEarnings';
@@ -138,7 +138,7 @@ const RealtimeSection = ({ currentData, error }) => {
           {/* 天气显示 */}
           <WeatherDisplay latitude={-37.8136} longitude={144.9631} />
           
-          <SolarHouse3D
+          <SolarHouseImage
             solar={data.solar}
             gridImport={data.grid_import}
             gridExport={data.grid_export}
