@@ -12,25 +12,31 @@ import React, { useEffect, useRef, useState } from 'react';
 // ============================================================
 const ENERGY_FLOW_PATHS = {
   // Solar → Grid: 太阳能板 → out
-  solarGrid: 'M480,220 L480,310 L525,315',
+  //solarGrid: 'M480,220 L480,310 L525,315',
+  solarGrid: 'M227,215 L227,298 L274,307 L274,313 L225,323',
   
   // Solar → Home: 太阳能板 → 房屋内部
-  solarHome: 'M280,155 L280,175',
+  //solarHome: 'M280,155 L280,175',
+  solarHome: 'M334,227 L334,324 L420,308 L400,305',
   
   // Solar → Battery: 太阳能板 → 电池
-  solarBattery: 'M318,215 L318,238',
+  solarBattery: 'M227,215 L227,298 L284,311',
   
   // Grid → Home: 电网 → 房屋
-  gridHome: 'M220,325 L281,315 L281,215',
+  //gridHome: 'M220,325 L281,315 L281,215',
+  gridHome: 'M400,349 L322,329 L420,308 L400,305',
   
   // Grid → Battery: 电网 → 电池
-  gridToBattery: 'M255,335 L295,327',
+  //gridToBattery: 'M255,335 L295,327',
+  gridToBattery: 'M400,349 L322,329',
   
   // Battery → Home: 电池 → 房屋
-  batteryHome: 'M295,238 L295,218',
+  //batteryHome: 'M295,238 L295,218',
+  batteryHome: 'M323,320 L337,324 L420,308 L400,305',
   
   // Battery → Grid: 电池 → 电网（反向出口）
-  batteryGrid: 'M320,329 L400,349 ',
+  //batteryGrid: 'M320,329 L400,349 ',
+  batteryGrid: 'M284,320 L271,314 L225,323',
 };
 
 const COMET_COLORS = {
@@ -58,7 +64,7 @@ const formatPower = (value) => {
 // ============================================================
 // 彗星动画配置 - 基准像素速度 + 功率比例缩放
 // ============================================================
-const COMET_BASE_PIXEL_SPEED = 50;  // 基准像素速度（1kW 时）
+const COMET_BASE_PIXEL_SPEED = 40;  // 基准像素速度（1kW 时）
 const COMET_MAX_POWER = 6;          // 最大参考功率
 
 // 根据功率计算像素速度
@@ -357,8 +363,8 @@ const SolarHouseImage = ({
           
           // 根据电量选择颜色
           const getFillColor = (p) => {
-            if (p <= 20) return '#ef4444';  // 红色
-            if (p <= 50) return '#f59e0b';  // 橙色
+            if (p <= 10) return '#ef4444';  // 红色
+            if (p <= 30) return '#f59e0b';  // 橙色
             return '#00e8bb';  // 绿色
           };
           
@@ -454,50 +460,37 @@ const SolarHouseImage = ({
         )}
 
         {/* Grid 标签 - 与地基平行 */}
-        {/* 左侧: from grid - 只在 gridToHome 或 gridToBattery 有值时显示 */}
-        {(gridToHome || gridToBattery) && (
-          <text 
-            x="145" 
-            y="330" 
-            fill="#60a5fa" 
-            fontSize="14" 
-            fontWeight="600"
-            transform="rotate(20, 145, 410)"
-            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
-          >
-            ⚡ from grid
-          </text>
-        )}
-        
-        {/* 右侧: to grid (绿色) - 只在 batteryToGrid 有值时显示 */}
-        {batteryToGrid && (
+        {/* 右侧: from grid - 只在 gridToHome 或 gridToBattery 有值时显示 */}
+        {((gridToHome || gridToBattery)||DEBUG_SHOW_ALL_PATHS) && (
           <text 
             x="400" 
             y="345" 
+            fill="#60a5fa" 
+            fontSize="14" 
+            fontWeight="600"
+            transform="rotate(-15, 480, 410)"
+            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
+          >
+            from grid ⚡ 
+          </text>
+        )}
+        
+        {/* 左侧: to grid (绿色) - 只在 batteryToGrid 或solarToGrid 有值时显示 */}
+        {((batteryToGrid || solarToGrid) || DEBUG_SHOW_ALL_PATHS) && (
+          <text 
+            x="165" 
+            y="330" 
             fill="#34d399" 
             fontSize="14" 
             fontWeight="600"
-            transform="rotate(-18, 480, 410)"
+            transform="rotate(15, 145, 410)"
             style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
           >
-            to grid ⚡
+            ⚡ to grid
           </text>
         )}
 
-        {/* 右侧: to grid (黄色) - 只在 solarToGrid 有值时显示 */}
-        {solarToGrid && (
-          <text 
-            x="520" 
-            y="350" 
-            fill="#fbbf24" 
-            fontSize="14" 
-            fontWeight="600"
-            transform="rotate(-18, 480, 410)"
-            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
-          >
-            to grid ⚡
-          </text>
-        )}
+        
 
       </svg>
 
