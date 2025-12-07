@@ -17,14 +17,14 @@ const ENERGY_FLOW_PATHS = {
   
   // Solar → Home: 太阳能板 → 房屋内部
   //solarHome: 'M280,155 L280,175',
-  solarHome: 'M334,227 L334,324 L420,308 L400,305',
+  solarHome: 'M334,227 L334,324 L420,308 L390,305',
   
   // Solar → Battery: 太阳能板 → 电池
   solarBattery: 'M227,215 L227,298 L284,311',
   
   // Grid → Home: 电网 → 房屋
   //gridHome: 'M220,325 L281,315 L281,215',
-  gridHome: 'M400,349 L322,329 L420,308 L400,305',
+  gridHome: 'M400,349 L322,329 L420,308 L390,305',
   
   // Grid → Battery: 电网 → 电池
   //gridToBattery: 'M255,335 L295,327',
@@ -32,11 +32,11 @@ const ENERGY_FLOW_PATHS = {
   
   // Battery → Home: 电池 → 房屋
   //batteryHome: 'M295,238 L295,218',
-  batteryHome: 'M323,320 L337,324 L420,308 L400,305',
+  batteryHome: 'M323,320 L337,324 L420,308 L390,305',
   
   // Battery → Grid: 电池 → 电网（反向出口）
   //batteryGrid: 'M320,329 L400,349 ',
-  batteryGrid: 'M284,320 L271,314 L225,323',
+  batteryGrid: 'M284,310 L274,307 L274,313 L225,323',
 };
 
 const COMET_COLORS = {
@@ -196,7 +196,15 @@ const EnergyFlowCanvas = ({
       for (let i = startIndex; i <= currentIndex; i++) {
         const point = points[i];
         const distanceFromHead = currentIndex - i;
-        const opacity = 1 - (distanceFromHead / cometLength);
+        let opacity = 1 - (distanceFromHead / cometLength);
+
+        // 终点渐隐：当接近终点时逐渐变透明
+        const fadeLength = 10;  // 最后20个点开始渐隐
+        const distanceToEnd = points.length - 1 - currentIndex;
+        if (distanceToEnd < fadeLength) {
+          opacity *= distanceToEnd / fadeLength;
+        }
+
         const width = cometWidth * opacity;
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
