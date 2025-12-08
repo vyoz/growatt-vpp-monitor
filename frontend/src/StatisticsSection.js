@@ -24,12 +24,42 @@ const SectionContainer = ({ children, className = "" }) => (
 );
 
 // ============================================================
+// Toggle 开关组件
+// ============================================================
+const ToggleSwitch = ({ enabled, onChange, label }) => (
+  <label className="flex items-center gap-1.5 cursor-pointer">
+    <span className="text-gray-400 text-xs">{label}</span>
+    <button
+      type="button"
+      onClick={() => onChange(!enabled)}
+      className={`relative w-8 h-4 rounded-full transition-colors ${enabled ? 'bg-cyan-500' : 'bg-gray-600'}`}
+    >
+      <span 
+        className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`}
+      />
+    </button>
+  </label>
+);
+
+// ============================================================
 // 模块二：历史统计
 // ============================================================
 const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDateChange, onEndDateChange, onApply, apiBase }) => {
   // 小时数据状态
   const [hourlyData, setHourlyData] = useState([]);
   const [hourlyLoading, setHourlyLoading] = useState(false);
+  
+  // SOC 显示开关状态（从 localStorage 读取，默认关闭）
+  const [showSOC, setShowSOC] = useState(() => {
+    const saved = localStorage.getItem('showSOCInHistory');
+    return saved === 'true';
+  });
+
+  // 保存 SOC 开关状态到 localStorage
+  const handleSOCToggle = (value) => {
+    setShowSOC(value);
+    localStorage.setItem('showSOCInHistory', value.toString());
+  };
 
   // 判断是否为单天查询
   const isSingleDay = startDate === endDate;
@@ -73,12 +103,16 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
         label: h.hour_label,
         energyIn: (h.solar_kwh || 0) + (h.grid_import_kwh || 0),
         energyOut: (h.load_kwh || 0) + (h.grid_export_kwh || 0),
+        soc: h.avg_soc,
       }))
     : dailyData.map(d => ({
         label: d.date?.slice(5) || '',
         energyIn: (d.solar_kwh || 0) + (d.grid_import_kwh || 0),
         energyOut: (d.load_kwh || 0) + (d.grid_export_kwh || 0),
       }));
+
+  // 检查是否有 SOC 数据
+  const hasSOCData = isSingleDay && chartData.some(d => d.soc !== null && d.soc !== undefined);
 
   const dateRangeText = startDate === endDate ? startDate : `${startDate} ~ ${endDate}`;
   const isMultiDay = dailyData.length > 1;
@@ -91,7 +125,7 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
   };
 
   // 曲线图标题
-  const chartTitle = isSingleDay ? '每小时能量收支' : '每日能量收支';
+  const chartTitle = isSingleDay ? '小时能量收支' : '日能量收支';
 
   return (
     <SectionContainer>
@@ -185,10 +219,20 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
           </div>
 
           {/* 曲线图 - 单天显示小时数据，多天显示日数据 */}
-          <div className="bg-gray-800/50 rounded-xl p-3">
-            <h3 className="text-gray-400 text-xs font-medium mb-1">
-              {chartTitle} <span className="text-gray-500">(kWh)</span>
-            </h3>
+          <div className="bg-gray-800/50 rounded-xl py-3 px-1">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-gray-400 text-xs font-medium">
+                {chartTitle} <span className="text-gray-500">(kWh)</span>
+              </h3>
+              {/* SOC Toggle - 只在单天模式且有SOC数据时显示 */}
+              {isSingleDay && hasSOCData && (
+                <ToggleSwitch 
+                  enabled={showSOC} 
+                  onChange={handleSOCToggle} 
+                  label="电池电量"
+                />
+              )}
+            </div>
             {hourlyLoading ? (
               <div className="flex items-center justify-center h-[250px] text-gray-500">
                 加载小时数据...
@@ -206,20 +250,75 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
                     textAnchor={isSingleDay ? 'end' : 'middle'}
                     height={isSingleDay ? 40 : 30}
                   />
-                  <YAxis stroke="#9CA3AF" />
+                  {/* 左Y轴 - 能量 (kWh) */}
+                  <YAxis 
+                    yAxisId="left"
+                    stroke="#9CA3AF" 
+                    fontSize={10}
+                  />
+                  {/* 右Y轴 - 电池电量 (%) - 只在开启时显示 */}
+                  {showSOC && isSingleDay && (
+                    <YAxis 
+                      yAxisId="right"
+                      orientation="right"
+                      stroke="#22D3EE"
+                      fontSize={10}
+                      domain={[0, 100]}
+                      tickFormatter={(v) => `${v}%`}
+                    />
+                  )}
                   <Tooltip
                     contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
                     labelStyle={{ color: '#F3F4F6' }}
-                    formatter={(value, name) => [
-                      `${value.toFixed(2)} kWh`,
-                      name === 'energyIn' ? '获取 (Solar + Grid In)' : '消耗 (Load + Grid Out)'
-                    ]}
+                    formatter={(value, name) => {
+                      if (name === 'soc') {
+                        return value !== null ? [`${value}%`, '电池电量'] : ['-', '电池电量'];
+                      }
+                      return [
+                        `${value.toFixed(2)} kWh`,
+                        name === 'energyIn' ? '获取 (Solar + Grid In)' : '消耗 (Load + Grid Out)'
+                      ];
+                    }}
                   />
                   <Legend 
-                    formatter={(value) => value === 'energyIn' ? '能量获取' : '能量消耗'}
+                    formatter={(value) => {
+                      if (value === 'energyIn') return '能量获取';
+                      if (value === 'energyOut') return '能量消耗';
+                      if (value === 'soc') return '电池电量';
+                      return value;
+                    }}
                   />
-                  <Line type="monotone" dataKey="energyIn" stroke="#FCD34D" strokeWidth={2} dot={{ fill: '#FCD34D', r: isSingleDay ? 2 : 4 }} name="energyIn" />
-                  <Line type="monotone" dataKey="energyOut" stroke="#A78BFA" strokeWidth={2} dot={{ fill: '#A78BFA', r: isSingleDay ? 2 : 4 }} name="energyOut" />
+                  <Line 
+                    yAxisId="left"
+                    type="monotone" 
+                    dataKey="energyIn" 
+                    stroke="#FCD34D" 
+                    strokeWidth={2} 
+                    dot={{ fill: '#FCD34D', r: isSingleDay ? 2 : 4 }} 
+                    name="energyIn" 
+                  />
+                  <Line 
+                    yAxisId="left"
+                    type="monotone" 
+                    dataKey="energyOut" 
+                    stroke="#A78BFA" 
+                    strokeWidth={2} 
+                    dot={{ fill: '#A78BFA', r: isSingleDay ? 2 : 4 }} 
+                    name="energyOut" 
+                  />
+                  {/* SOC 曲线 - 只在开启时显示 */}
+                  {showSOC && isSingleDay && (
+                    <Line 
+                      yAxisId="right"
+                      type="monotone" 
+                      dataKey="soc" 
+                      stroke="#22D3EE" 
+                      strokeWidth={2} 
+                      dot={{ fill: '#22D3EE', r: 2 }} 
+                      name="soc"
+                      connectNulls={true}
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             )}

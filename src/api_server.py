@@ -764,7 +764,7 @@ def calculate_hourly_totals(target_date):
     """
     Calculate hourly totals for a specific date.
     
-    Returns a list of 24 dictionaries (one per hour) with energy totals.
+    Returns a list of 24 dictionaries (one per hour) with energy totals and avg SOC.
     Uses actual time intervals for accurate kWh calculation.
     """
     # Initialize hourly buckets (0-23)
@@ -779,7 +779,9 @@ def calculate_hourly_totals(target_date):
             "grid_import_kwh": 0,
             "battery_charge_kwh": 0,
             "battery_discharge_kwh": 0,
-            "count": 0
+            "count": 0,
+            "soc_sum": 0,  # For calculating average SOC
+            "soc_count": 0
         })
     
     # Collect all data for the target date
@@ -801,6 +803,24 @@ def calculate_hourly_totals(target_date):
     data_points.sort(key=lambda x: x["timestamp"])
     
     if len(data_points) < 2:
+        # Still calculate SOC for single data points
+        for point in data_points:
+            t = datetime.fromisoformat(point["timestamp"])
+            hour = t.hour
+            soc = point.get("soc_bms") or point.get("soc_inv") or 0
+            if soc > 0:
+                hourly[hour]["soc_sum"] += soc
+                hourly[hour]["soc_count"] += 1
+        
+        # Calculate average SOC
+        for h in hourly:
+            if h["soc_count"] > 0:
+                h["avg_soc"] = round(h["soc_sum"] / h["soc_count"], 1)
+            else:
+                h["avg_soc"] = None
+            del h["soc_sum"]
+            del h["soc_count"]
+        
         return hourly
     
     # Calculate using actual time intervals
@@ -828,8 +848,14 @@ def calculate_hourly_totals(target_date):
         hourly[hour]["battery_charge_kwh"] += current["battery_charge"] * interval_hours
         hourly[hour]["battery_discharge_kwh"] += current["battery_discharge"] * interval_hours
         hourly[hour]["count"] += 1
+        
+        # Accumulate SOC for averaging
+        soc = current.get("soc_bms") or current.get("soc_inv") or 0
+        if soc > 0:
+            hourly[hour]["soc_sum"] += soc
+            hourly[hour]["soc_count"] += 1
     
-    # Round all values
+    # Round all values and calculate average SOC
     for h in hourly:
         h["solar_kwh"] = round(h["solar_kwh"], 3)
         h["load_kwh"] = round(h["load_kwh"], 3)
@@ -837,6 +863,16 @@ def calculate_hourly_totals(target_date):
         h["grid_import_kwh"] = round(h["grid_import_kwh"], 3)
         h["battery_charge_kwh"] = round(h["battery_charge_kwh"], 3)
         h["battery_discharge_kwh"] = round(h["battery_discharge_kwh"], 3)
+        
+        # Calculate average SOC for this hour
+        if h["soc_count"] > 0:
+            h["avg_soc"] = round(h["soc_sum"] / h["soc_count"], 1)
+        else:
+            h["avg_soc"] = None
+        
+        # Remove temporary fields
+        del h["soc_sum"]
+        del h["soc_count"]
     
     return hourly
 
