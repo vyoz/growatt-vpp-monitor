@@ -733,6 +733,114 @@ def get_daily_range():
     })
 
 
+@app.route('/api/hourly', methods=['GET'])
+def get_hourly():
+    """
+    Get hourly totals for a specific date.
+    
+    Query parameters:
+    - date: Date in YYYY-MM-DD format (optional, defaults to today)
+    
+    Returns 24 data points (one per hour, 0-23) with energy totals for each hour.
+    
+    Example: /api/hourly?date=2025-12-08
+    """
+    date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    
+    try:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+    
+    hourly_data = calculate_hourly_totals(target_date)
+    return jsonify({
+        "date": target_date.isoformat(),
+        "count": len(hourly_data),
+        "data": hourly_data
+    })
+
+
+def calculate_hourly_totals(target_date):
+    """
+    Calculate hourly totals for a specific date.
+    
+    Returns a list of 24 dictionaries (one per hour) with energy totals.
+    Uses actual time intervals for accurate kWh calculation.
+    """
+    # Initialize hourly buckets (0-23)
+    hourly = []
+    for hour in range(24):
+        hourly.append({
+            "hour": hour,
+            "hour_label": f"{hour:02d}:00",
+            "solar_kwh": 0,
+            "load_kwh": 0,
+            "grid_export_kwh": 0,
+            "grid_import_kwh": 0,
+            "battery_charge_kwh": 0,
+            "battery_discharge_kwh": 0,
+            "count": 0
+        })
+    
+    # Collect all data for the target date
+    data_points = []
+    files = get_log_files_for_date_range(target_date, target_date)
+    
+    if files:
+        for filepath in files:
+            file_data = read_csv_data(filepath, target_date, target_date)
+            data_points.extend(file_data)
+    else:
+        # Fallback to in-memory data
+        with data_lock:
+            for d in historical_data:
+                if datetime.fromisoformat(d["timestamp"]).date() == target_date:
+                    data_points.append(d.copy())
+    
+    # Sort by timestamp
+    data_points.sort(key=lambda x: x["timestamp"])
+    
+    if len(data_points) < 2:
+        return hourly
+    
+    # Calculate using actual time intervals
+    for i in range(len(data_points) - 1):
+        current = data_points[i]
+        next_point = data_points[i + 1]
+        
+        t1 = datetime.fromisoformat(current["timestamp"])
+        t2 = datetime.fromisoformat(next_point["timestamp"])
+        
+        interval_sec = (t2 - t1).total_seconds()
+        
+        # Skip invalid intervals (> 10 minutes or negative)
+        if interval_sec <= 0 or interval_sec > 600:
+            continue
+        
+        interval_hours = interval_sec / 3600.0
+        hour = t1.hour
+        
+        # Accumulate energy for this hour
+        hourly[hour]["solar_kwh"] += current["solar"] * interval_hours
+        hourly[hour]["load_kwh"] += current["load"] * interval_hours
+        hourly[hour]["grid_export_kwh"] += current["grid_export"] * interval_hours
+        hourly[hour]["grid_import_kwh"] += abs(current["grid_import"]) * interval_hours
+        hourly[hour]["battery_charge_kwh"] += current["battery_charge"] * interval_hours
+        hourly[hour]["battery_discharge_kwh"] += current["battery_discharge"] * interval_hours
+        hourly[hour]["count"] += 1
+    
+    # Round all values
+    for h in hourly:
+        h["solar_kwh"] = round(h["solar_kwh"], 3)
+        h["load_kwh"] = round(h["load_kwh"], 3)
+        h["grid_export_kwh"] = round(h["grid_export_kwh"], 3)
+        h["grid_import_kwh"] = round(h["grid_import_kwh"], 3)
+        h["battery_charge_kwh"] = round(h["battery_charge_kwh"], 3)
+        h["battery_discharge_kwh"] = round(h["battery_discharge_kwh"], 3)
+    
+    return hourly
+
+
 def calculate_daily_totals(target_date):
     """
     Calculate daily totals from CSV files or memory.

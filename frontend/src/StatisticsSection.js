@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import SankeyFlow from './SankeyFlow';
 
@@ -26,7 +26,37 @@ const SectionContainer = ({ children, className = "" }) => (
 // ============================================================
 // 模块二：历史统计
 // ============================================================
-const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDateChange, onEndDateChange, onApply }) => {
+const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDateChange, onEndDateChange, onApply, apiBase }) => {
+  // 小时数据状态
+  const [hourlyData, setHourlyData] = useState([]);
+  const [hourlyLoading, setHourlyLoading] = useState(false);
+
+  // 判断是否为单天查询
+  const isSingleDay = startDate === endDate;
+
+  // 当单天查询时，获取小时数据
+  useEffect(() => {
+    if (isSingleDay && startDate && apiBase) {
+      setHourlyLoading(true);
+      fetch(`${apiBase}/api/hourly?date=${startDate}`)
+        .then(res => res.json())
+        .then(result => {
+          if (result.data) {
+            setHourlyData(result.data);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to fetch hourly data:', err);
+          setHourlyData([]);
+        })
+        .finally(() => {
+          setHourlyLoading(false);
+        });
+    } else {
+      setHourlyData([]);
+    }
+  }, [isSingleDay, startDate, apiBase]);
+
   // 计算汇总
   const totals = dailyData.reduce((acc, d) => ({
     solar: acc.solar + (d.solar_kwh || 0),
@@ -37,12 +67,18 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
     grid_export: acc.grid_export + (d.grid_export_kwh || 0),
   }), { solar: 0, load: 0, battery_charge: 0, battery_discharge: 0, grid_import: 0, grid_export: 0 });
 
-  // 收支曲线图数据：In (Solar + Grid Import) vs Out (Load + Grid Export)
-  const balanceChartData = dailyData.map(d => ({
-    date: d.date?.slice(5) || '',
-    energyIn: (d.solar_kwh || 0) + (d.grid_import_kwh || 0),
-    energyOut: (d.load_kwh || 0) + (d.grid_export_kwh || 0),
-  }));
+  // 曲线图数据：根据是否单天决定用小时数据还是日数据
+  const chartData = isSingleDay && hourlyData.length > 0
+    ? hourlyData.map(h => ({
+        label: h.hour_label,
+        energyIn: (h.solar_kwh || 0) + (h.grid_import_kwh || 0),
+        energyOut: (h.load_kwh || 0) + (h.grid_export_kwh || 0),
+      }))
+    : dailyData.map(d => ({
+        label: d.date?.slice(5) || '',
+        energyIn: (d.solar_kwh || 0) + (d.grid_import_kwh || 0),
+        energyOut: (d.load_kwh || 0) + (d.grid_export_kwh || 0),
+      }));
 
   const dateRangeText = startDate === endDate ? startDate : `${startDate} ~ ${endDate}`;
   const isMultiDay = dailyData.length > 1;
@@ -53,6 +89,9 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
     onEndDateChange(end);
     onApply(start, end);
   };
+
+  // 曲线图标题
+  const chartTitle = isSingleDay ? '每小时能量收支' : '每日能量收支';
 
   return (
     <SectionContainer>
@@ -138,7 +177,6 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
                 battery_discharge: totals.battery_discharge,
                 grid_import: totals.grid_import,
                 grid_export: totals.grid_export,
-                battery_net: totals.battery_charge - totals.battery_discharge,
               }}
               unit="kWh"
               height={250}
@@ -146,31 +184,45 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
             />
           </div>
 
-          {/* 曲线图 - 始终显示 */}
+          {/* 曲线图 - 单天显示小时数据，多天显示日数据 */}
           <div className="bg-gray-800/50 rounded-xl p-3">
             <h3 className="text-gray-400 text-xs font-medium mb-1">
-              每日能量收支 <span className="text-gray-500">(kWh)</span>
+              {chartTitle} <span className="text-gray-500">(kWh)</span>
             </h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={balanceChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="date" stroke="#9CA3AF" fontSize={11} />
-                <YAxis stroke="#9CA3AF" />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
-                  labelStyle={{ color: '#F3F4F6' }}
-                  formatter={(value, name) => [
-                    `${value.toFixed(2)} kWh`,
-                    name === 'energyIn' ? '获取 (Solar + Grid In)' : '消耗 (Load + Grid Out)'
-                  ]}
-                />
-                <Legend 
-                  formatter={(value) => value === 'energyIn' ? '能量获取' : '能量消耗'}
-                />
-                <Line type="monotone" dataKey="energyIn" stroke="#FCD34D" strokeWidth={2} dot={{ fill: '#FCD34D', r: 4 }} name="energyIn" />
-                <Line type="monotone" dataKey="energyOut" stroke="#A78BFA" strokeWidth={2} dot={{ fill: '#A78BFA', r: 4 }} name="energyOut" />
-              </LineChart>
-            </ResponsiveContainer>
+            {hourlyLoading ? (
+              <div className="flex items-center justify-center h-[250px] text-gray-500">
+                加载小时数据...
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis 
+                    dataKey="label" 
+                    stroke="#9CA3AF" 
+                    fontSize={10}
+                    interval={isSingleDay ? 2 : 'preserveStartEnd'}
+                    angle={isSingleDay ? -45 : 0}
+                    textAnchor={isSingleDay ? 'end' : 'middle'}
+                    height={isSingleDay ? 40 : 30}
+                  />
+                  <YAxis stroke="#9CA3AF" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
+                    labelStyle={{ color: '#F3F4F6' }}
+                    formatter={(value, name) => [
+                      `${value.toFixed(2)} kWh`,
+                      name === 'energyIn' ? '获取 (Solar + Grid In)' : '消耗 (Load + Grid Out)'
+                    ]}
+                  />
+                  <Legend 
+                    formatter={(value) => value === 'energyIn' ? '能量获取' : '能量消耗'}
+                  />
+                  <Line type="monotone" dataKey="energyIn" stroke="#FCD34D" strokeWidth={2} dot={{ fill: '#FCD34D', r: isSingleDay ? 2 : 4 }} name="energyIn" />
+                  <Line type="monotone" dataKey="energyOut" stroke="#A78BFA" strokeWidth={2} dot={{ fill: '#A78BFA', r: isSingleDay ? 2 : 4 }} name="energyOut" />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       )}

@@ -393,14 +393,12 @@ function App() {
     }
   }, [startDate, endDate]);
 
-  // 初始加载 - 默认使用过去7天
+  // 初始加载 - 默认显示当天
   useEffect(() => {
     const today = getToday();
-    const now = new Date();
-    const weekAgo = formatDate(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
-    setStartDate(weekAgo);
+    setStartDate(today);
     setEndDate(today);
-    fetchDailyRange(weekAgo, today);
+    fetchDailyRange(today, today);
   }, []); // 只在组件挂载时执行一次
 
   // 查询按钮处理
@@ -442,6 +440,7 @@ function App() {
           onStartDateChange={setStartDate}
           onEndDateChange={setEndDate}
           onApply={handleApply}
+          apiBase={API_BASE}
         />
 
         {/* 模块三：曲线图 */}
