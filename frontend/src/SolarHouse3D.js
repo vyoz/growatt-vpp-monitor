@@ -159,7 +159,14 @@ const EnergyFlowCanvas = ({
       for (let i = startIndex; i <= currentIndex; i++) {
         const point = points[i];
         const distanceFromHead = currentIndex - i;
-        const opacity = 1 - (distanceFromHead / cometLength);
+        let opacity = 1 - (distanceFromHead / cometLength);
+
+        // 终点渐隐：当接近终点时逐渐变透明
+        const fadeLength = 10;
+        const distanceToEnd = points.length - 1 - currentIndex;
+        if (distanceToEnd < fadeLength) {
+          opacity *= distanceToEnd / fadeLength;
+        }
         const width = cometWidth * opacity;
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
