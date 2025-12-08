@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import SolarHouseImage from './SolarHouseImage';
+import SolarHouse3D from './SolarHouse3D';
 import WeatherDisplay from './WeatherDisplay';
 import SankeyFlow from './SankeyFlow';
 import DailyEarnings from './DailyEarnings';
@@ -82,6 +83,20 @@ const StatCard = ({ title, value, unit, icon, color, subtitle }) => {
 // ============================================================
 const RealtimeSection = ({ currentData, error }) => {
   const data = currentData;
+
+   // 房屋模型切换：从 localStorage 读取偏好，默认用 3D
+  const [use3DModel, setUse3DModel] = useState(() => {
+    const saved = localStorage.getItem('houseModel');
+    return saved !== 'image';  // 默认 true (3D)
+  });
+  
+  const toggleModel = () => {
+    setUse3DModel(prev => {
+      const newValue = !prev;
+      localStorage.setItem('houseModel', newValue ? '3d' : 'image');
+      return newValue;
+    });
+  };
     
   const solarToHome = currentData.solar > 0.01 && currentData.load > 0.01;
   const solarToBattery = currentData.solar > 0.01 && currentData.battery_charge > 0.01;
@@ -135,9 +150,49 @@ const RealtimeSection = ({ currentData, error }) => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         {/* 左侧：3D 房屋模型 - 占1列 */}
         <div className="lg:col-span-1 bg-gray-800/50 rounded-xl overflow-hidden h-[220px] lg:h-[260px] relative">
-          {/* 天气显示 */}
-          <WeatherDisplay latitude={-37.8136} longitude={144.9631} />
-          
+        {/* 天气显示 */}
+        <WeatherDisplay latitude={-37.8136} longitude={144.9631} />
+        
+       
+      {/* 切换开关 */}
+        <div className="absolute bottom-2 right-2 z-20 flex items-center gap-1.5 bg-gray-800/80 px-1.5 py-1 rounded-full">
+          <span className="text-[10px] text-gray-400">Static</span>
+          <button
+            onClick={toggleModel}
+            className={`relative w-8 h-4 rounded-full transition-colors ${use3DModel ? 'bg-emerald-500' : 'bg-gray-600'}`}
+          >
+            <span 
+              className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${use3DModel ? 'translate-x-4' : 'translate-x-0'}`}
+            />
+          </button>
+          <span className="text-[10px] text-gray-400">3D</span>
+        </div>
+        
+        {use3DModel ? (
+          <SolarHouse3D
+            solar={data.solar}
+            gridImport={data.grid_import}
+            gridExport={data.grid_export}
+            batteryCharge={data.battery_charge}
+            batteryDischarge={data.battery_discharge}
+            load={data.load}
+            batteryPercent={data.soc_inv || data.soc_bms || 0}
+            solarToHome={solarToHome}
+            solarToBattery={solarToBattery}
+            batteryToHome={batteryToHome}
+            gridToHome={gridToHome}
+            gridToBattery={gridToBattery}
+            solarToGrid={solarToGrid}
+            batteryToGrid={batteryToGrid}
+            solarToHomePower={solarToHomePower}
+            solarToBatteryPower={solarToBatteryPower}
+            solarToGridPower={solarToGridPower}
+            gridToHomePower={gridToHomePower}
+            gridToBatteryPower={gridToBatteryPower}
+            batteryToHomePower={batteryToHomePower}
+            batteryToGridPower={batteryToGridPower}
+          />
+        ) : (
           <SolarHouseImage
             solar={data.solar}
             gridImport={data.grid_import}
@@ -161,7 +216,8 @@ const RealtimeSection = ({ currentData, error }) => {
             batteryToHomePower={batteryToHomePower}
             batteryToGridPower={batteryToGridPower}
           />
-        </div>
+        )}
+      </div>
 
         {/* 右侧：Sankey图 - 占2列 */}
         <div className="lg:col-span-1 bg-gray-800/50 rounded-xl p-3 overflow-hidden">

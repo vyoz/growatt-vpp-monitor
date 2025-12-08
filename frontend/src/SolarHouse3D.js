@@ -5,14 +5,19 @@ import * as THREE from 'three';
 // 能量流动路径定义 - 只需要在这里修改一次
 // ============================================================
 const ENERGY_FLOW_PATHS = {
-  solarGrid: 'M380,95 L380,70 L155,70',
-  solarHome: 'M400,130 L430,160 L430,178',
-  solarBattery: 'M380,130 L300,130 L260,165',
-  gridHome: 'M155,100 L155,178 L280,178 L280,165 L430,165 L430,178',
-  gridBattery: 'M155,100 L155,178 L245,178',
-  batteryHome: 'M270,178 L430,178',
-  batteryGrid: 'M245,165 L155,165 L155,100',
+  solarGrid: 'M270,90 L270,70 L155,70',
+  solarHome: 'M280,140 L280,180 L270,180',
+  solarBattery: 'M250,130 L203,130 L203,165',
+  gridHome: 'M150,160 L150,210 L265,210 L265,192',
+  gridBattery: 'M155,100 L195,100 L195,160',
+  batteryHome: 'M210,190 L253,190',
+  batteryGrid: 'M195,160 L195,100 L155,100',
 };
+
+// ============================================================
+// 调试模式 - 设为 true 显示所有路径和坐标
+// ============================================================
+const DEBUG_SHOW_ALL_PATHS = false;  // 调试完成后改回 false
 
 // ============================================================
 // 工具函数
@@ -247,6 +252,8 @@ const SolarHouse3D = ({
   solarToHomePower = 0, solarToBatteryPower = 0, solarToGridPower = 0,
   gridToHomePower = 0, gridToBatteryPower = 0, batteryToHomePower = 0, batteryToGridPower = 0,
 }) => {
+  const [mouseCoords, setMouseCoords] = useState(null);
+
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
@@ -564,7 +571,7 @@ const SolarHouse3D = ({
     crossV.position.x = 0.06;
     windowGroup.add(crossV);
 
-    windowGroup.position.set(wallWidth / 2 + 0.08, 1.5, 0.5);
+    windowGroup.position.set(wallWidth / 2 + 0.08, 1.5, 1.5);
     houseGroup.add(windowGroup);
 
     houseGroup.position.set(1.5, 0, 0);
@@ -775,19 +782,61 @@ const SolarHouse3D = ({
         )}
       </div>
 
-      {/* SVG Connection Lines - 使用共享的路径定义 */}
-      <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[5]" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet">
+     {/* SVG Connection Lines - 使用共享的路径定义 */}
+      <svg 
+        className="absolute top-0 left-0 w-full h-full z-[5]" 
+        style={{ pointerEvents: DEBUG_SHOW_ALL_PATHS ? 'auto' : 'none' }}
+        viewBox="0 0 400 320" 
+        preserveAspectRatio="xMidYMid meet"
+        onMouseMove={(e) => {
+          if (!DEBUG_SHOW_ALL_PATHS) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = ((e.clientX - rect.left) / rect.width) * 400;
+          const y = ((e.clientY - rect.top) / rect.height) * 320;
+          setMouseCoords({ x: Math.round(x), y: Math.round(y), clientX: e.clientX, clientY: e.clientY });
+        }}
+        onMouseLeave={() => setMouseCoords(null)}
+      >
         <style>{`
           .conn-line { stroke: rgba(255,255,255,0.2); stroke-width: 1; fill: none; }
         `}</style>
-        {solarToGrid && <path d={ENERGY_FLOW_PATHS.solarGrid} className="conn-line" />}
-        {solarToHome && <path d={ENERGY_FLOW_PATHS.solarHome} className="conn-line" />}
-        {solarToBattery && <path d={ENERGY_FLOW_PATHS.solarBattery} className="conn-line" />}
-        {gridToHome && <path d={ENERGY_FLOW_PATHS.gridHome} className="conn-line" />}
-        {gridToBattery && <path d={ENERGY_FLOW_PATHS.gridBattery} className="conn-line" />}
-        {batteryToHome && <path d={ENERGY_FLOW_PATHS.batteryHome} className="conn-line" />}
-        {batteryToGrid && <path d={ENERGY_FLOW_PATHS.batteryGrid} className="conn-line" />}
+        
+        {/* 调试模式：显示所有路径 */}
+        {DEBUG_SHOW_ALL_PATHS && (
+          <>
+            <path d={ENERGY_FLOW_PATHS.solarGrid} stroke="#fbbf24" strokeWidth="2" fill="none" strokeDasharray="5,5" />
+            <path d={ENERGY_FLOW_PATHS.solarHome} stroke="#fbbf24" strokeWidth="2" fill="none" strokeDasharray="5,5" />
+            <path d={ENERGY_FLOW_PATHS.solarBattery} stroke="#fbbf24" strokeWidth="2" fill="none" strokeDasharray="5,5" />
+            <path d={ENERGY_FLOW_PATHS.gridHome} stroke="#60a5fa" strokeWidth="2" fill="none" strokeDasharray="5,5" />
+            <path d={ENERGY_FLOW_PATHS.gridBattery} stroke="#60a5fa" strokeWidth="2" fill="none" strokeDasharray="5,5" />
+            <path d={ENERGY_FLOW_PATHS.batteryHome} stroke="#00e8bb" strokeWidth="2" fill="none" strokeDasharray="5,5" />
+            <path d={ENERGY_FLOW_PATHS.batteryGrid} stroke="#00e8bb" strokeWidth="2" fill="none" strokeDasharray="5,5" />
+          </>
+        )}
+        
+        {/* 正常模式 */}
+        {!DEBUG_SHOW_ALL_PATHS && (
+          <>
+            {solarToGrid && <path d={ENERGY_FLOW_PATHS.solarGrid} className="conn-line" />}
+            {solarToHome && <path d={ENERGY_FLOW_PATHS.solarHome} className="conn-line" />}
+            {solarToBattery && <path d={ENERGY_FLOW_PATHS.solarBattery} className="conn-line" />}
+            {gridToHome && <path d={ENERGY_FLOW_PATHS.gridHome} className="conn-line" />}
+            {gridToBattery && <path d={ENERGY_FLOW_PATHS.gridBattery} className="conn-line" />}
+            {batteryToHome && <path d={ENERGY_FLOW_PATHS.batteryHome} className="conn-line" />}
+            {batteryToGrid && <path d={ENERGY_FLOW_PATHS.batteryGrid} className="conn-line" />}
+          </>
+        )}
       </svg>
+
+      {/* 调试模式：鼠标坐标提示 */}
+      {DEBUG_SHOW_ALL_PATHS && mouseCoords && (
+        <div 
+          className="fixed bg-black/80 text-white text-xs px-2 py-1 rounded pointer-events-none z-50"
+          style={{ left: mouseCoords.clientX + 15, top: mouseCoords.clientY + 15 }}
+        >
+          ({mouseCoords.x}, {mouseCoords.y})
+        </div>
+      )}
 
       {/* Canvas Energy Flow with Comets */}
       <EnergyFlowCanvas
