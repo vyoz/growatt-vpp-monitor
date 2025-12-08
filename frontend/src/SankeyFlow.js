@@ -19,31 +19,10 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
     battery_net = 0 
   } = data || {};
 
-  // 计算电池净值：避免同时显示充电和放电
-  let batteryIn = 0;
-  let batteryOut = 0;
-  
-  if (battery_net !== undefined && Math.abs(battery_net) > 0.001) {
-    if (battery_net > 0) {
-      batteryIn = battery_net;
-      batteryOut = 0;
-    } else {
-      batteryIn = 0;
-      batteryOut = -battery_net;
-    }
-  } else {
-    const netCharge = battery_charge - battery_discharge;
-    if (netCharge > 0.001) {
-      batteryIn = netCharge;
-      batteryOut = 0;
-    } else if (netCharge < -0.001) {
-      batteryIn = 0;
-      batteryOut = -netCharge;
-    } else {
-      batteryIn = 0;
-      batteryOut = 0;
-    }
-  }
+  // 方案2：直接使用原始的充放电值，同时显示 Battery In 和 Battery Out
+  // 这样可以真实反映电池的活动量，而不是被净值掩盖
+  const batteryIn = battery_charge;
+  const batteryOut = battery_discharge;
 
   // 总输入和总输出
   const totalInput = solar + batteryOut + grid_import;
@@ -80,8 +59,9 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
   };
 
   // 计算流向
+  // 方案2：Battery Out 永远不流向 Battery In（避免"电池给自己充电"的逻辑错误）
   let solarToLoad, solarToBatteryIn, solarToGridOut;
-  let batteryOutToLoad, batteryOutToBatteryIn, batteryOutToGridOut;
+  let batteryOutToLoad, batteryOutToGridOut;
   let gridInToLoad, gridInToBatteryIn;
 
   if (totalInput > 0.001 && totalOutput > 0.001) {
@@ -89,19 +69,37 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
     const batteryInRatio = batteryIn / totalOutput;
     const gridOutRatio = grid_export / totalOutput;
 
+    // Solar 可以流向所有输出
     solarToLoad = solar * loadRatio;
     solarToBatteryIn = solar * batteryInRatio;
     solarToGridOut = solar * gridOutRatio;
 
-    batteryOutToLoad = batteryOut * loadRatio;
-    batteryOutToBatteryIn = batteryOut * batteryInRatio;
-    batteryOutToGridOut = batteryOut * gridOutRatio;
+    // Battery Out 只能流向 Load 和 Grid Out（不能流向 Battery In）
+    const batteryOutTargetTotal = load + grid_export;
+    if (batteryOutTargetTotal > 0.001) {
+      const batteryOutToLoadRatio = load / batteryOutTargetTotal;
+      const batteryOutToGridOutRatio = grid_export / batteryOutTargetTotal;
+      batteryOutToLoad = batteryOut * batteryOutToLoadRatio;
+      batteryOutToGridOut = batteryOut * batteryOutToGridOutRatio;
+    } else {
+      batteryOutToLoad = 0;
+      batteryOutToGridOut = 0;
+    }
 
-    gridInToLoad = grid_import * loadRatio;
-    gridInToBatteryIn = grid_import * batteryInRatio;
+    // Grid In 可以流向 Load 和 Battery In（不流向 Grid Out）
+    const gridInTargetTotal = load + batteryIn;
+    if (gridInTargetTotal > 0.001) {
+      const gridInToLoadRatio = load / gridInTargetTotal;
+      const gridInToBatteryInRatio = batteryIn / gridInTargetTotal;
+      gridInToLoad = grid_import * gridInToLoadRatio;
+      gridInToBatteryIn = grid_import * gridInToBatteryInRatio;
+    } else {
+      gridInToLoad = 0;
+      gridInToBatteryIn = 0;
+    }
   } else {
     solarToLoad = solarToBatteryIn = solarToGridOut = 0;
-    batteryOutToLoad = batteryOutToBatteryIn = batteryOutToGridOut = 0;
+    batteryOutToLoad = batteryOutToGridOut = 0;
     gridInToLoad = gridInToBatteryIn = 0;
   }
 
@@ -248,7 +246,7 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
       { source: "Solar", target: "Battery In", value: solarToBatteryIn },
       { source: "Solar", target: "Grid Out", value: solarToGridOut },
       { source: "Battery Out", target: "Load", value: batteryOutToLoad },
-      { source: "Battery Out", target: "Battery In", value: batteryOutToBatteryIn },
+      // Battery Out 不连接到 Battery In（避免"电池给自己充电"）
       { source: "Battery Out", target: "Grid Out", value: batteryOutToGridOut },
       { source: "Grid In", target: "Load", value: gridInToLoad },
       { source: "Grid In", target: "Battery In", value: gridInToBatteryIn },
@@ -498,7 +496,7 @@ const SankeyFlow = ({ data, title = "能量流向", unit = "kW", height = 420, i
         .text(`(${node.percentage}%)`);
     });
 
-  }, [data, containerWidth, height, instanceId, unit, solar, batteryOut, grid_import, batteryIn, load, grid_export, totalInput, totalOutput, solarToLoad, solarToBatteryIn, solarToGridOut, batteryOutToLoad, batteryOutToBatteryIn, batteryOutToGridOut, gridInToLoad, gridInToBatteryIn, nodeColors, nodeValues, nodePercentages]);
+  }, [data, containerWidth, height, instanceId, unit, solar, batteryOut, grid_import, batteryIn, load, grid_export, totalInput, totalOutput, solarToLoad, solarToBatteryIn, solarToGridOut, batteryOutToLoad, batteryOutToGridOut, gridInToLoad, gridInToBatteryIn, nodeColors, nodeValues, nodePercentages]);
 
   // 检查是否有能量流
   const hasFlow = totalInput > 0.001 || totalOutput > 0.001;
