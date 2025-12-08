@@ -155,7 +155,7 @@ const RealtimeSection = ({ currentData, error }) => {
         
        
       {/* 切换开关 */}
-        <div className="absolute bottom-2 right-2 z-20 flex items-center gap-1.5 bg-gray-800/80 px-1.5 py-1 rounded-full">
+        <div className="absolute bottom-2 left-2 z-20 flex items-center gap-1.5 bg-gray-800/80 px-1.5 py-1 rounded-full">
           <span className="text-[10px] text-gray-400">Static</span>
           <button
             onClick={toggleModel}

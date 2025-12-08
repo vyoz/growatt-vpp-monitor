@@ -398,9 +398,9 @@ const SolarHouse3D = ({
   useEffect(() => {
     if (batteryGlowMeshRef.current) {
       const maxGlowH = 0.9;
-      const newH = (batteryPercent / 100) * maxGlowH;
-      batteryGlowMeshRef.current.scale.y = newH / 0.9 || 0.01;
-      batteryGlowMeshRef.current.position.y = 0.35 + newH / 2;
+      const scale = (batteryPercent / 100) || 0.01;
+      batteryGlowMeshRef.current.scale.y = scale;
+      batteryGlowMeshRef.current.position.y = 0.35 + (maxGlowH * scale) / 2;
     }
   }, [batteryPercent]);
 
@@ -599,12 +599,15 @@ const SolarHouse3D = ({
     batteryGroup.add(display);
 
     const maxGlowH = 0.9;
-    const glowH = (initialBatteryPercent / 100) * maxGlowH;
+    // 用固定高度创建，通过 scale 控制实际显示高度
     const batteryGlowMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.58, glowH, 0.03),
+      new THREE.BoxGeometry(0.58, maxGlowH, 0.03),
       batteryGlowMaterial
     );
-    batteryGlowMesh.position.set(0, 0.35 + glowH / 2, 0.25);
+    // 初始化 scale 和位置
+    const initialScale = (initialBatteryPercent / 100) || 0.01;
+    batteryGlowMesh.scale.y = initialScale;
+    batteryGlowMesh.position.set(0, 0.35 + (maxGlowH * initialScale) / 2, 0.25);
     batteryGroup.add(batteryGlowMesh);
     batteryGlowMeshRef.current = batteryGlowMesh;
 
