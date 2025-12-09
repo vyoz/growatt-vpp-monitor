@@ -156,7 +156,7 @@ const RealtimeSection = ({ currentData, error }) => {
        
       {/* 切换开关 */}
         <div className="absolute bottom-2 left-2 z-20 flex items-center gap-1.5 bg-gray-800/80 px-1.5 py-1 rounded-full">
-          <span className="text-[10px] text-gray-400">Static</span>
+          <span className="text-[10px] text-gray-400">Modern</span>
           <button
             onClick={toggleModel}
             className={`relative w-8 h-4 rounded-full transition-colors ${use3DModel ? 'bg-emerald-500' : 'bg-gray-600'}`}
@@ -165,7 +165,7 @@ const RealtimeSection = ({ currentData, error }) => {
               className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${use3DModel ? 'translate-x-4' : 'translate-x-0'}`}
             />
           </button>
-          <span className="text-[10px] text-gray-400">3D</span>
+          <span className="text-[10px] text-gray-400">Classic</span>
         </div>
         
         {use3DModel ? (
