@@ -98,18 +98,29 @@ const StatisticsSection = ({ dailyData, isLoading, startDate, endDate, onStartDa
   }), { solar: 0, load: 0, battery_charge: 0, battery_discharge: 0, grid_import: 0, grid_export: 0 });
 
   // 曲线图数据：根据是否单天决定用小时数据还是日数据
-  const chartData = isSingleDay && hourlyData.length > 0
-    ? hourlyData.map(h => ({
-        label: h.hour_label,
-        energyIn: (h.solar_kwh || 0) + (h.grid_import_kwh || 0),
-        energyOut: (h.load_kwh || 0) + (h.grid_export_kwh || 0),
-        soc: h.avg_soc,
-      }))
-    : dailyData.map(d => ({
-        label: d.date?.slice(5) || '',
-        energyIn: (d.solar_kwh || 0) + (d.grid_import_kwh || 0),
-        energyOut: (d.load_kwh || 0) + (d.grid_export_kwh || 0),
-      }));
+  const chartData = (() => {
+    if (isSingleDay && hourlyData.length > 0) {
+      const isToday = startDate === getToday();
+      const currentHour = new Date().getHours();
+      
+      return hourlyData.map(h => {
+        // 如果是今天且超过当前小时，数据设为null（曲线不显示，但x轴保留）
+        const isFutureHour = isToday && h.hour > currentHour;
+        
+        return {
+          label: h.hour_label,
+          energyIn: isFutureHour ? null : (h.solar_kwh || 0) + (h.grid_import_kwh || 0),
+          energyOut: isFutureHour ? null : (h.load_kwh || 0) + (h.grid_export_kwh || 0),
+          soc: isFutureHour ? null : h.avg_soc,
+        };
+      });
+    }
+    return dailyData.map(d => ({
+      label: d.date?.slice(5) || '',
+      energyIn: (d.solar_kwh || 0) + (d.grid_import_kwh || 0),
+      energyOut: (d.load_kwh || 0) + (d.grid_export_kwh || 0),
+    }));
+  })();
 
   // 检查是否有 SOC 数据
   const hasSOCData = isSingleDay && chartData.some(d => d.soc !== null && d.soc !== undefined);
