@@ -50,6 +50,14 @@ const SAMPLE_INTERVALS = [
   { value: 10, label: '10分钟' },
 ];
 
+// 曲线配置
+const LINE_CONFIG = [
+  { dataKey: 'solar', stroke: '#FCD34D', name: 'Solar (kW)' },
+  { dataKey: 'load', stroke: '#A78BFA', name: 'Load (kW)' },
+  { dataKey: 'battery', stroke: '#22D3EE', name: 'Battery (kW)' },
+  { dataKey: 'grid', stroke: '#60A5FA', name: 'Grid (kW)' },
+];
+
 // ============================================================
 // 模块三：功率曲线（自动获取最近24小时数据，可选采样间隔）
 // ============================================================
@@ -64,6 +72,14 @@ const PowerChart = ({ apiBase }) => {
   
   // 显示时间范围（小时）
   const [timeRange, setTimeRange] = useState(1);
+  
+  // 曲线可见性控制 - 默认全部显示
+  const [visibleLines, setVisibleLines] = useState({
+    solar: true,
+    load: true,
+    battery: true,
+    grid: true,
+  });
   
   // 动态计算显示的数据点数：时间范围(小时) * 60 / 采样间隔(分钟)
   const visiblePoints = Math.floor(timeRange * 60 / sampleInterval);
@@ -98,6 +114,54 @@ const PowerChart = ({ apiBase }) => {
   const handleMouseUp = () => {
     setIsDragging(false);
   };
+
+  // 点击图例切换曲线显示
+  const handleLegendClick = useCallback((dataKey) => {
+    setVisibleLines(prev => ({
+      ...prev,
+      [dataKey]: !prev[dataKey]
+    }));
+  }, []);
+
+  // 自定义图例渲染 - 用 useCallback 避免闭包问题
+  const renderLegend = useCallback((props) => {
+    return (
+      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2">
+        {LINE_CONFIG.map((line) => {
+          const isVisible = visibleLines[line.dataKey];
+          return (
+            <div
+              key={line.dataKey}
+              onClick={() => handleLegendClick(line.dataKey)}
+              className={`flex items-center gap-1.5 cursor-pointer select-none px-2 py-1 rounded transition-all ${
+                isVisible 
+                  ? 'opacity-100 hover:bg-gray-700/50' 
+                  : 'opacity-40 hover:opacity-60'
+              }`}
+              title={isVisible ? '点击隐藏' : '点击显示'}
+            >
+              {/* 色块/勾选指示器 */}
+              <div 
+                className="w-4 h-3 rounded-sm border transition-all"
+                style={{ 
+                  backgroundColor: isVisible ? line.stroke : 'transparent',
+                  borderColor: line.stroke,
+                }}
+              />
+              {/* 标签文字 */}
+              <span 
+                className={`text-xs transition-all ${
+                  isVisible ? 'text-gray-200' : 'text-gray-500 line-through'
+                }`}
+              >
+                {line.name}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }, [visibleLines, handleLegendClick]);
 
   // 获取最近24小时的数据
   const fetchData = useCallback(async () => {
@@ -228,6 +292,45 @@ const PowerChart = ({ apiBase }) => {
     return `${firstHM} - ${lastHM}`;
   };
 
+  // 渲染图表的共享配置
+  const renderChart = (ChartWrapper, chartProps = {}) => (
+    <ChartWrapper {...chartProps}>
+      <LineChart data={displayData} {...(chartProps.width ? { width: chartProps.width, height: 350, margin: { top: 10, right: 30, left: 40, bottom: 20 } } : {})}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+        <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1} />
+        <XAxis 
+          dataKey="time" 
+          stroke="#9CA3AF" 
+          fontSize={10}
+          interval={needsScroll ? Math.floor(displayData.length / 20) : "preserveStartEnd"}
+          tickFormatter={(value) => {
+            const match = value.match(/(\d{1,2}:\d{2})/);
+            return match ? match[1] : value;
+          }}
+        />
+        <YAxis stroke="#9CA3AF" />
+        <Tooltip
+          contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
+          labelStyle={{ color: '#F3F4F6' }}
+        />
+        <Legend content={renderLegend} />
+        {LINE_CONFIG.map((line) => (
+          visibleLines[line.dataKey] && (
+            <Line 
+              key={line.dataKey}
+              type="monotone" 
+              dataKey={line.dataKey} 
+              stroke={line.stroke} 
+              strokeWidth={2} 
+              dot={false} 
+              name={line.name}
+            />
+          )
+        ))}
+      </LineChart>
+    </ChartWrapper>
+  );
+
   return (
     <SectionContainer>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
@@ -284,6 +387,11 @@ const PowerChart = ({ apiBase }) => {
             </span>
           </div>
           
+          {/* 图例操作提示 */}
+          <div className="text-gray-500 text-xs mb-2 text-center">
+            💡 点击下方图例可显示/隐藏对应曲线
+          </div>
+          
           {/* 滚动提示 */}
           {needsScroll && (
             <div className="text-gray-400 text-xs mb-2 flex items-center gap-1">
@@ -333,11 +441,20 @@ const PowerChart = ({ apiBase }) => {
                   contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
                   labelStyle={{ color: '#F3F4F6' }}
                 />
-                <Legend />
-                <Line type="monotone" dataKey="solar" stroke="#FCD34D" strokeWidth={2} dot={false} name="Solar (kW)" />
-                <Line type="monotone" dataKey="load" stroke="#A78BFA" strokeWidth={2} dot={false} name="Load (kW)" />
-                <Line type="monotone" dataKey="battery" stroke="#22D3EE" strokeWidth={2} dot={false} name="Battery (kW)" />
-                <Line type="monotone" dataKey="grid" stroke="#60A5FA" strokeWidth={2} dot={false} name="Grid (kW)" />
+                <Legend content={renderLegend} />
+                {LINE_CONFIG.map((line) => (
+                  visibleLines[line.dataKey] && (
+                    <Line 
+                      key={line.dataKey}
+                      type="monotone" 
+                      dataKey={line.dataKey} 
+                      stroke={line.stroke} 
+                      strokeWidth={2} 
+                      dot={false} 
+                      name={line.name}
+                    />
+                  )
+                ))}
               </LineChart>
             </div>
           ) : (
@@ -361,11 +478,20 @@ const PowerChart = ({ apiBase }) => {
                   contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
                   labelStyle={{ color: '#F3F4F6' }}
                 />
-                <Legend />
-                <Line type="monotone" dataKey="solar" stroke="#FCD34D" strokeWidth={2} dot={false} name="Solar (kW)" />
-                <Line type="monotone" dataKey="load" stroke="#A78BFA" strokeWidth={2} dot={false} name="Load (kW)" />
-                <Line type="monotone" dataKey="battery" stroke="#22D3EE" strokeWidth={2} dot={false} name="Battery (kW)" />
-                <Line type="monotone" dataKey="grid" stroke="#60A5FA" strokeWidth={2} dot={false} name="Grid (kW)" />
+                <Legend content={renderLegend} />
+                {LINE_CONFIG.map((line) => (
+                  visibleLines[line.dataKey] && (
+                    <Line 
+                      key={line.dataKey}
+                      type="monotone" 
+                      dataKey={line.dataKey} 
+                      stroke={line.stroke} 
+                      strokeWidth={2} 
+                      dot={false} 
+                      name={line.name}
+                    />
+                  )
+                ))}
               </LineChart>
             </ResponsiveContainer>
           )}
